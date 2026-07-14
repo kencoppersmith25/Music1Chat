@@ -1,7 +1,7 @@
 package com.coppersmith.music1chat.repository
 
-import com.coppersmith.music1chat.model.Category
-import com.coppersmith.music1chat.model.CategoryType
+import com.coppersmith.music1chat.models.Category
+import com.coppersmith.music1chat.models.CategoryType
 
 class CategoryRepository {
 
@@ -75,7 +75,7 @@ class CategoryRepository {
         add(
             Category(
                 id = 2,
-                name = "Jazz",
+                name = "Christian",
                 type = CategoryType.STANDARD,
                 sortOrder = 1
             )
@@ -84,9 +84,27 @@ class CategoryRepository {
         add(
             Category(
                 id = 3,
-                name = "Rock",
+                name = "Jazz",
                 type = CategoryType.STANDARD,
                 sortOrder = 2
+            )
+        )
+
+        add(
+            Category(
+                id = 4,
+                name = "Alternative",
+                type = CategoryType.STANDARD,
+                sortOrder = 3
+            )
+        )
+
+        add(
+            Category(
+                id = 5,
+                name = "Hawaiian",
+                type = CategoryType.STANDARD,
+                sortOrder = 4
             )
         )
     }

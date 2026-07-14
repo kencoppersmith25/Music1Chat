@@ -1,96 +1,44 @@
 package com.coppersmith.music1chat.ui.screens
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.coppersmith.music1chat.GenreData
 import com.coppersmith.music1chat.RadioPlayer
-import com.coppersmith.music1chat.StationData
+import com.coppersmith.music1chat.navigation.NavigationCommand
+import com.coppersmith.music1chat.navigation.NavigationEngine
+import com.coppersmith.music1chat.navigation.NavigationResult
+import com.coppersmith.music1chat.navigation.NavigationState
+import com.coppersmith.music1chat.persistence.AppPreferences
+import com.coppersmith.music1chat.repository.MusicRepository
 import com.coppersmith.music1chat.ui.components.CategoryCard
 import com.coppersmith.music1chat.ui.components.GenreSearchBox
 import com.coppersmith.music1chat.ui.components.NowPlayingCard
 import com.coppersmith.music1chat.ui.components.PlaybackControls
 import com.coppersmith.music1chat.ui.components.SearchChips
 import com.coppersmith.music1chat.ui.components.TopControlBar
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.Bluetooth
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FormatListBulleted
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Fill
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.PopupProperties
-import kotlinx.coroutines.delay
-import com.coppersmith.music1chat.repository.MusicRepository
-
 
 @Composable
 fun MainScreen() {
@@ -100,31 +48,119 @@ fun MainScreen() {
     val musicRepository = remember {
         MusicRepository()
     }
-    val repositoryCategories = musicRepository.categories.getAll()
-    val repositoryStations = musicRepository.stations.getAll()
+
+    val appPreferences = remember {
+        AppPreferences(context.applicationContext)
+    }
+
+    val repositoryCategories =
+        musicRepository.categories.getAll()
+
+    val repositoryStations =
+        musicRepository.stations.getAll()
+
+    val membershipRepository =
+        musicRepository.memberships
+
+    val savedPlaybackState = remember {
+        appPreferences.restoreStationRepairs(
+            repositoryStations
+        )
+
+        appPreferences.loadPlaybackState()
+    }
+
+    val firstPlayableCategory =
+        musicRepository.categories
+            .getNavigationCategories()
+            .firstOrNull { category ->
+                membershipRepository
+                    .getNavigationStationsForCategory(category.id)
+                    .isNotEmpty()
+            }
+
+    val firstPlayableStation =
+        firstPlayableCategory?.let { category ->
+            membershipRepository
+                .getNavigationStationsForCategory(category.id)
+                .firstOrNull()
+        }
+
+    val savedCategory =
+        savedPlaybackState.categoryId?.let { categoryId ->
+            musicRepository.categories.getById(categoryId)
+        }
+
+    val savedStation =
+        savedPlaybackState.stationId?.let { stationId ->
+            musicRepository.stations.getById(stationId)
+        }
+
+    val savedSelectionIsValid =
+        savedCategory != null &&
+                savedStation != null &&
+                savedCategory.includedInNavigation &&
+                savedStation.includedInNavigation &&
+                !savedStation.failedThisSession &&
+                membershipRepository.contains(
+                    categoryId = savedCategory.id,
+                    stationId = savedStation.id
+                )
+
+    val initialCategoryId =
+        if (savedSelectionIsValid) {
+            savedCategory?.id
+        } else {
+            firstPlayableCategory?.id
+        }
+
+    val initialStationId =
+        if (savedSelectionIsValid) {
+            savedStation?.id
+        } else {
+            firstPlayableStation?.id
+        }
+
+    val shouldResumePlayback =
+        savedSelectionIsValid &&
+                savedPlaybackState.wasPlaying
 
     val radioPlayer = remember {
         RadioPlayer(context.applicationContext)
     }
 
-    val stations = StationData.RELIABLE_STATIONS
-
-    var currentStationIndex by remember {
-        mutableStateOf(0)
+    val navigationEngine = remember {
+        NavigationEngine(
+            categoryRepository = musicRepository.categories,
+            stationRepository = musicRepository.stations,
+            membershipRepository = membershipRepository,
+            initialState = NavigationState(
+                currentCategoryId = initialCategoryId,
+                currentStationId = initialStationId,
+                isPlaying = shouldResumePlayback
+            )
+        )
     }
 
-    val currentStation = stations[currentStationIndex]
-    val isPlaying = radioPlayer.isPlaying
+    var navigationState by remember {
+        mutableStateOf(
+            navigationEngine.getState()
+        )
+    }
+
+    var navigationStatusMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var stationStateVersion by remember {
+        mutableIntStateOf(0)
+    }
 
     var showCategoryList by remember {
         mutableStateOf(false)
     }
 
     var categoryIncludedInNavigation by remember {
-        mutableStateOf(true)
-    }
-
-    var stationIncludedInNavigation by remember {
         mutableStateOf(true)
     }
 
@@ -144,11 +180,17 @@ fun MainScreen() {
     }
 
     var activeCategory by remember {
-        mutableStateOf(currentStation.genre)
+        mutableStateOf(
+            initialCategoryId?.let { categoryId ->
+                musicRepository.categories
+                    .getById(categoryId)
+                    ?.name
+            }.orEmpty()
+        )
     }
 
     var activeCategoryIsSearch by remember {
-        mutableStateOf(true)
+        mutableStateOf(false)
     }
 
     var showGenreMenu by remember {
@@ -156,6 +198,38 @@ fun MainScreen() {
     }
 
     val genres = GenreData.MAJOR_GENRES
+
+    stationStateVersion
+
+    val navigationStations =
+        musicRepository.stations.getNavigationStations()
+
+    val currentStation =
+        navigationState.currentStationId?.let { stationId ->
+            musicRepository.stations.getById(stationId)
+        }
+
+    val currentCategory =
+        navigationState.currentCategoryId?.let { categoryId ->
+            musicRepository.categories.getById(categoryId)
+        }
+
+    val currentCategoryStations =
+        navigationState.currentCategoryId?.let { categoryId ->
+            membershipRepository
+                .getNavigationStationsForCategory(categoryId)
+        } ?: emptyList()
+
+    val currentStationIndex =
+        currentCategoryStations
+            .indexOfFirst { station ->
+                station.id == navigationState.currentStationId
+            }
+            .takeIf { index ->
+                index >= 0
+            } ?: 0
+
+    val isPlaying = radioPlayer.isPlaying
 
     val filteredGenres: List<String> = remember(
         searchText,
@@ -166,7 +240,7 @@ fun MainScreen() {
         if (typedText.isBlank()) {
             genres
         } else {
-            genres.filter { genre: String ->
+            genres.filter { genre ->
                 genre.contains(
                     typedText,
                     ignoreCase = true
@@ -175,15 +249,65 @@ fun MainScreen() {
         }
     }
 
+    fun saveCurrentState(
+        state: NavigationState
+    ) {
+        appPreferences.savePlaybackState(
+            categoryId = state.currentCategoryId,
+            stationId = state.currentStationId,
+            wasPlaying = state.isPlaying
+        )
+    }
+
+    fun applyNavigationResult(
+        result: NavigationResult
+    ) {
+        navigationState = result.state
+        navigationStatusMessage = result.statusMessage
+
+        saveCurrentState(result.state)
+
+        val selectedStation =
+            result.state.currentStationId?.let { stationId ->
+                musicRepository.stations.getById(stationId)
+            }
+
+        val selectedCategory =
+            result.state.currentCategoryId?.let { categoryId ->
+                musicRepository.categories.getById(categoryId)
+            }
+
+        if (selectedCategory != null) {
+            activeCategory = selectedCategory.name
+            activeCategoryIsSearch = false
+        }
+
+        if (
+            selectedStation != null &&
+            result.shouldStartPlayback
+        ) {
+            radioPlayer.play(selectedStation)
+        }
+    }
+
+    fun executeNavigationCommand(
+        command: NavigationCommand
+    ) {
+        applyNavigationResult(
+            navigationEngine.execute(command)
+        )
+    }
+
     val submitSearch: () -> Unit = {
         val typedText = searchText.trim()
 
-        val exactMatch = genres.firstOrNull {
-            it.equals(
-                typedText,
-                ignoreCase = true
-            )
-        }
+        val exactMatch =
+            genres.firstOrNull { genre ->
+                genre.equals(
+                    typedText,
+                    ignoreCase = true
+                )
+            }
 
         val selectedSearch =
             exactMatch
@@ -199,8 +323,33 @@ fun MainScreen() {
         }
     }
 
-    DisposableEffect(radioPlayer) {
+    LaunchedEffect(Unit) {
+        saveCurrentState(navigationState)
+
+        if (
+            shouldResumePlayback &&
+            currentStation != null
+        ) {
+            radioPlayer.play(currentStation)
+        }
+    }
+
+    DisposableEffect(
+        radioPlayer,
+        navigationEngine
+    ) {
+        radioPlayer.onStationFailed = {
+            executeNavigationCommand(
+                NavigationCommand.NEXT_STATION
+            )
+        }
+
         onDispose {
+            saveCurrentState(
+                navigationEngine.getState()
+            )
+
+            radioPlayer.onStationFailed = null
             radioPlayer.release()
         }
     }
@@ -214,32 +363,37 @@ fun MainScreen() {
                 CategorySummary(
                     key = "current_search",
                     name = "Search: $activeCategory",
-                    stationCount = stations.size,
-                    includedInNavigation = categoryIncludedInNavigation
+                    stationCount = navigationStations.size,
+                    includedInNavigation =
+                        categoryIncludedInNavigation
                 ),
                 CategorySummary(
                     key = "Classical",
                     name = "Classical",
                     stationCount = 247,
-                    includedInNavigation = savedCategoryNavigationStates["Classical"] == true
+                    includedInNavigation =
+                        savedCategoryNavigationStates["Classical"] == true
                 ),
                 CategorySummary(
                     key = "Jazz",
                     name = "Jazz",
                     stationCount = 183,
-                    includedInNavigation = savedCategoryNavigationStates["Jazz"] == true
+                    includedInNavigation =
+                        savedCategoryNavigationStates["Jazz"] == true
                 ),
                 CategorySummary(
                     key = "Bike Ride",
                     name = "Bike Ride",
                     stationCount = 42,
-                    includedInNavigation = savedCategoryNavigationStates["Bike Ride"] == true
+                    includedInNavigation =
+                        savedCategoryNavigationStates["Bike Ride"] == true
                 ),
                 CategorySummary(
                     key = "Morning Drive",
                     name = "Morning Drive",
                     stationCount = 31,
-                    includedInNavigation = savedCategoryNavigationStates["Morning Drive"] == true
+                    includedInNavigation =
+                        savedCategoryNavigationStates["Morning Drive"] == true
                 )
             )
 
@@ -249,7 +403,6 @@ fun MainScreen() {
                     showCategoryList = false
                 },
                 onCategoryClick = { _ ->
-                    // Station-list navigation comes next.
                 },
                 onNavigationToggle = { categoryKey ->
                     if (categoryKey == "current_search") {
@@ -280,7 +433,9 @@ fun MainScreen() {
             ) {
                 TopControlBar()
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(
+                    modifier = Modifier.height(14.dp)
+                )
 
                 GenreSearchBox(
                     searchText = searchText,
@@ -306,7 +461,9 @@ fun MainScreen() {
                     }
                 )
 
-                Spacer(modifier = Modifier.height(7.dp))
+                Spacer(
+                    modifier = Modifier.height(7.dp)
+                )
 
                 SearchChips(
                     selectedSearch = activeCategory,
@@ -319,14 +476,18 @@ fun MainScreen() {
                     }
                 )
 
-                Spacer(modifier = Modifier.height(13.dp))
+                Spacer(
+                    modifier = Modifier.height(13.dp)
+                )
 
                 CategoryCard(
-                    categoryName = if (activeCategoryIsSearch) {
-                        "Search: $activeCategory"
-                    } else {
-                        activeCategory
-                    },
+                    categoryName =
+                        if (activeCategoryIsSearch) {
+                            "Search: $activeCategory"
+                        } else {
+                            currentCategory?.name
+                                ?: activeCategory
+                        },
                     includedInNavigation =
                         categoryIncludedInNavigation,
                     onNavigationToggle = {
@@ -341,87 +502,94 @@ fun MainScreen() {
                     }
                 )
 
-                Spacer(modifier = Modifier.height(13.dp))
-
-                NowPlayingCard(
-                    stationName = currentStation.name,
-                    stationGenre = currentStation.genre,
-                    stationNumber = currentStationIndex + 1,
-                    stationCount = stations.size,
-                    categoryIsSearch = activeCategoryIsSearch,
-                    isPlaying = isPlaying,
-                    includedInNavigation =
-                        stationIncludedInNavigation,
-                    onNavigationToggle = {
-                        stationIncludedInNavigation =
-                            !stationIncludedInNavigation
-                    },
-                    onSaveOrMoveClick = {
-                    },
-                    onCopyClick = {
-                    },
-                    onDeleteClick = {
-                    }
+                Spacer(
+                    modifier = Modifier.height(13.dp)
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                if (currentStation != null) {
+                    NowPlayingCard(
+                        stationName = currentStation.name,
+                        stationGenre = currentStation.genre,
+                        stationNumber = currentStationIndex + 1,
+                        stationCount =
+                            currentCategoryStations.size,
+                        categoryIsSearch =
+                            activeCategoryIsSearch,
+                        isPlaying = isPlaying,
+                        includedInNavigation =
+                            currentStation.includedInNavigation,
+                        onNavigationToggle = {
+                            currentStation.includedInNavigation =
+                                !currentStation.includedInNavigation
+
+                            stationStateVersion++
+                        },
+                        onSaveOrMoveClick = {
+                        },
+                        onCopyClick = {
+                        },
+                        onDeleteClick = {
+                        }
+                    )
+                } else {
+                    Text(
+                        text = "No stations are available.",
+                        color =
+                            MaterialTheme.colorScheme.onBackground,
+                        fontSize = 17.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.height(12.dp)
+                )
 
                 PlaybackControls(
                     isPlaying = isPlaying,
                     onPreviousCategoryClick = {
+                        executeNavigationCommand(
+                            NavigationCommand.PREVIOUS_CATEGORY
+                        )
                     },
                     onPreviousStationClick = {
-                        currentStationIndex =
-                            if (currentStationIndex == 0) {
-                                stations.lastIndex
-                            } else {
-                                currentStationIndex - 1
-                            }
-
-                        val newStation =
-                            stations[currentStationIndex]
-
-                        activeCategory =
-                            newStation.genre
-
-                        if (isPlaying) {
-                            radioPlayer.play(newStation)
-                        }
+                        executeNavigationCommand(
+                            NavigationCommand.PREVIOUS_STATION
+                        )
                     },
                     onPlayPauseClick = {
                         if (isPlaying) {
                             radioPlayer.stop()
+
+                            executeNavigationCommand(
+                                NavigationCommand.STOP
+                            )
                         } else {
-                            radioPlayer.play(currentStation)
+                            executeNavigationCommand(
+                                NavigationCommand.PLAY
+                            )
                         }
                     },
                     onNextStationClick = {
-                        currentStationIndex =
-                            if (
-                                currentStationIndex ==
-                                stations.lastIndex
-                            ) {
-                                0
-                            } else {
-                                currentStationIndex + 1
-                            }
-
-                        val newStation =
-                            stations[currentStationIndex]
-
-                        activeCategory =
-                            newStation.genre
-
-                        if (isPlaying) {
-                            radioPlayer.play(newStation)
-                        }
+                        executeNavigationCommand(
+                            NavigationCommand.NEXT_STATION
+                        )
                     },
                     onNextCategoryClick = {
+                        executeNavigationCommand(
+                            NavigationCommand.NEXT_CATEGORY
+                        )
                     }
                 )
 
-                radioPlayer.errorMessage?.let { message ->
-                    Spacer(modifier = Modifier.height(8.dp))
+                val visibleStatusMessage =
+                    radioPlayer.errorMessage
+                        ?: navigationStatusMessage
+
+                visibleStatusMessage?.let { message ->
+                    Spacer(
+                        modifier = Modifier.height(8.dp)
+                    )
 
                     Text(
                         text = message,
@@ -431,19 +599,24 @@ fun MainScreen() {
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                Spacer(
+                    modifier = Modifier.weight(1f)
+                )
 
                 Text(
                     text = "Bluetooth controls ready",
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color =
+                        MaterialTheme.colorScheme.onBackground,
                     fontSize = 14.sp
                 )
 
                 Text(
                     text =
-                        "Repository: ${repositoryCategories.size} categories, " +
+                        "Repository: " +
+                                "${repositoryCategories.size} categories, " +
                                 "${repositoryStations.size} stations",
-                    style = MaterialTheme.typography.bodySmall
+                    style =
+                        MaterialTheme.typography.bodySmall
                 )
             }
         }

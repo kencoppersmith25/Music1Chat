@@ -1,4 +1,4 @@
-package com.coppersmith.music1chat.model
+package com.coppersmith.music1chat.models
 
 
 enum class SourceType {

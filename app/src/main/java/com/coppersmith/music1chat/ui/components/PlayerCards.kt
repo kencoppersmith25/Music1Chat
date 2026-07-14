@@ -220,8 +220,9 @@ fun NowPlayingCard(
                     text = scrollingTitle,
                     modifier = Modifier
                         .weight(1f)
+                        .padding(end=12.dp)
                         .basicMarquee(
-                            iterations = Int.MAX_VALUE
+                            iterations=Int.MAX_VALUE
                         ),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 25.sp,
@@ -241,7 +242,6 @@ fun NowPlayingCard(
                             .width(42.dp)
                             .height(34.dp)
                     )
-
                     Box(
                         modifier = Modifier.size(48.dp),
                         contentAlignment = Alignment.Center
@@ -314,7 +314,7 @@ fun NowPlayingCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Artwork begins below the title, aligned with the category text edge.
             Row(

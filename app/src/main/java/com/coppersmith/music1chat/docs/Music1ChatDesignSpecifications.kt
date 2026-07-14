@@ -1,3 +1,5 @@
+
+
 package com.coppersmith.music1chat.docs
 
 object Music1ChatDesignSpecifications {
@@ -49,7 +51,7 @@ val Glossary = """
 
     Eligible
     Playable and hearted.
-    
+
     """.trimIndent()
 
 
@@ -577,7 +579,7 @@ val User_Interaction = ""
     Automatic navigation should keep music playing, but a direct tap is an
     explicit request to open a particular category. The app should honor that
     request rather than silently moving somewhere else.
-    
+
 """.trimIndent()
 
     val DIRECT_STATION_SELECTION = """

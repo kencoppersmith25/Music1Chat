@@ -1,14 +1,13 @@
 package com.coppersmith.music1chat.repository
 
-import com.coppersmith.music1chat.model.SourceType
-import com.coppersmith.music1chat.model.Station
+import com.coppersmith.music1chat.models.SourceType
+import com.coppersmith.music1chat.models.Station
 
 class StationRepository {
 
     private val stations = mutableListOf<Station>()
 
-    fun getAll(): List<Station> =
-        stations.toList()
+    fun getAll(): List<Station> = stations.toList()
 
     fun getById(id: Long): Station? =
         stations.find { it.id == id }
@@ -24,7 +23,6 @@ class StationRepository {
         }
 
     fun add(station: Station): Boolean {
-
         val duplicate = stations.any {
             it.id == station.id ||
                     it.streamUrl.equals(
@@ -33,9 +31,7 @@ class StationRepository {
                     )
         }
 
-        if (duplicate) {
-            return false
-        }
+        if (duplicate) return false
 
         stations.add(station)
         return true
@@ -49,10 +45,7 @@ class StationRepository {
         getById(stationId)?.name = newName
     }
 
-    fun setNavigation(
-        stationId: Long,
-        enabled: Boolean
-    ) {
+    fun setNavigation(stationId: Long, enabled: Boolean) {
         getById(stationId)?.includedInNavigation = enabled
     }
 
@@ -75,10 +68,7 @@ class StationRepository {
     }
 
     fun seedDefaults() {
-
-        if (stations.isNotEmpty()) {
-            return
-        }
+        if (stations.isNotEmpty()) return
 
         add(
             Station(
@@ -134,6 +124,29 @@ class StationRepository {
                 streamUrl = "https://kexp.streamguys1.com/kexp160.aac",
                 genre = "Alternative",
                 city = "Seattle",
+                country = "United States",
+                sourceType = SourceType.STREAM
+            )
+        )
+
+        add(
+            Station(
+                id = 6,
+                name = "KDFC Classical",
+                streamUrl = "http://kdfc.streamguys1.com/kdfc-128.mp3",
+                genre = "Classical",
+                city = "San Francisco",
+                country = "United States",
+                sourceType = SourceType.STREAM
+            )
+        )
+        add(
+            Station(
+                id = 7,
+                name = "Classical Test Station",
+                streamUrl = "https://classicalking.streamguys1.com/king-fm-aac-128k",
+                genre = "Classical",
+                city = "Test",
                 country = "United States",
                 sourceType = SourceType.STREAM
             )

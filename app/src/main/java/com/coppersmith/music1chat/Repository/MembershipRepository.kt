@@ -1,7 +1,7 @@
 package com.coppersmith.music1chat.repository
 
-import com.coppersmith.music1chat.model.Membership
-import com.coppersmith.music1chat.model.Station
+import com.coppersmith.music1chat.models.Membership
+import com.coppersmith.music1chat.models.Station
 
 class MembershipRepository(
     private val stationRepository: StationRepository
@@ -149,22 +149,39 @@ class MembershipRepository(
             return
         }
 
-        // Classical category
+        // Category 1 — Classical
         addStationToCategory(
             categoryId = 1,
             stationId = 3
         )
 
-        // Jazz category
+        addStationToCategory(
+            categoryId = 1,
+            stationId = 6
+        )
+
+        // Category 2 — Christian
         addStationToCategory(
             categoryId = 2,
+            stationId = 2
+        )
+
+        // Category 3 — Jazz
+        addStationToCategory(
+            categoryId = 3,
             stationId = 4
         )
 
-        // Rock category temporarily receives KEXP.
+        // Category 4 — Alternative
         addStationToCategory(
-            categoryId = 3,
+            categoryId = 4,
             stationId = 5
+        )
+
+        // Category 5 — Hawaiian
+        addStationToCategory(
+            categoryId = 5,
+            stationId = 1
         )
     }
 
