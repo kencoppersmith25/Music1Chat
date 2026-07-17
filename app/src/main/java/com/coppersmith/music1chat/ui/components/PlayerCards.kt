@@ -39,6 +39,8 @@ import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -82,22 +84,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
-
-
+import androidx.compose.foundation.MarqueeDefaults
+import androidx.compose.ui.text.style.TextOverflow
+import com.coppersmith.music1chat.ui.components.NavigationIndicator
+import com.coppersmith.music1chat.ui.components.MiniVuMeter
 @Composable
 fun CategoryCard(
     categoryName: String,
     includedInNavigation: Boolean,
     onNavigationToggle: () -> Unit,
     onCategoryClick: () -> Unit,
-    onListClick: () -> Unit
+    onListClick: () -> Unit,
+    onDeleteClick: () -> Unit
 ) {
     OutlinedCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(17.dp),
         colors =
             CardDefaults.outlinedCardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                containerColor =
+                    MaterialTheme.colorScheme.surfaceVariant
             )
     ) {
         Row(
@@ -123,22 +129,48 @@ fun CategoryCard(
                 maxLines = 1
             )
 
-            CardTrailingControls(
-                includedInNavigation = includedInNavigation,
-                onNavigationToggle = onNavigationToggle,
-                iconContentDescription = "Station list",
-                onIconClick = onListClick
+            Row(
+                modifier = Modifier.width(138.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
             ) {
-                Icon(
-                    imageVector = Icons.Default.FormatListBulleted,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(28.dp)
+                IconButton(
+                    onClick = onListClick,
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Icon(
+                        imageVector =
+                            Icons.Default.FormatListBulleted,
+                        contentDescription =
+                            "Open station list",
+                        modifier = Modifier.size(27.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onDeleteClick,
+                    modifier = Modifier.size(46.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription =
+                            "Delete category",
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                NavigationIndicator(
+                    included = includedInNavigation,
+                    onClick = onNavigationToggle,
+                    modifier = Modifier
+                        .width(42.dp)
+                        .height(34.dp)
                 )
             }
         }
     }
 }
+
 
 @Composable
 fun CardTrailingControls(
@@ -175,6 +207,10 @@ fun CardTrailingControls(
 fun NowPlayingCard(
     stationName: String,
     stationGenre: String,
+    stationCallLetters: String,
+    stationCity: String,
+    stationCountry: String,
+    nowPlayingText: String,
     stationNumber: Int,
     stationCount: Int,
     categoryIsSearch: Boolean,
@@ -189,13 +225,25 @@ fun NowPlayingCard(
         mutableStateOf(false)
     }
 
+    val secondaryInformation =
+        listOf(
+            stationCallLetters,
+            stationGenre,
+            stationCity,
+            stationCountry
+        )
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("  •  ")
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .height(174.dp),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor =
+                MaterialTheme.colorScheme.surface
         )
     ) {
         Column(
@@ -204,44 +252,47 @@ fun NowPlayingCard(
                 .padding(
                     start = 14.dp,
                     end = 3.dp,
-                    top = 12.dp,
-                    bottom = 12.dp
+                    top = 10.dp,
+                    bottom = 10.dp
                 )
         ) {
-            // The scrolling title now gets the full left side of the first row.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment =
+                    Alignment.CenterVertically
             ) {
-                val scrollingTitle =
-                    "$stationName  •  $stationGenre radio  •  Live now  •  $stationName"
-
-                Text(
-                    text = scrollingTitle,
+                Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end=12.dp)
-                        .basicMarquee(
-                            iterations=Int.MAX_VALUE
-                        ),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
-                )
+                        .padding(end = 8.dp)
+                ) {
+                    Text(
+                        text = stationName,
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text =
+                            "Station $stationNumber of $stationCount",
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                }
 
                 Row(
                     modifier = Modifier.width(90.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
+                    verticalAlignment =
+                        Alignment.CenterVertically,
+                    horizontalArrangement =
+                        Arrangement.End
                 ) {
-                    NavigationIndicator(
-                        included = includedInNavigation,
-                        onClick = onNavigationToggle,
-                        modifier = Modifier
-                            .width(42.dp)
-                            .height(34.dp)
-                    )
                     Box(
                         modifier = Modifier.size(48.dp),
                         contentAlignment = Alignment.Center
@@ -249,13 +300,13 @@ fun NowPlayingCard(
                         IconButton(
                             onClick = {
                                 showStationMenu = true
-                            },
-                            modifier = Modifier.size(48.dp)
+                            }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = "Station menu",
-                                tint = MaterialTheme.colorScheme.onSurface,
+                                imageVector =
+                                    Icons.Default.Folder,
+                                contentDescription =
+                                    "Station actions",
                                 modifier = Modifier.size(28.dp)
                             )
                         }
@@ -284,7 +335,7 @@ fun NowPlayingCard(
 
                             DropdownMenuItem(
                                 text = {
-                                    Text("Copy to categories")
+                                    Text("Save to another category")
                                 },
                                 onClick = {
                                     showStationMenu = false
@@ -295,12 +346,13 @@ fun NowPlayingCard(
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        text = "Delete station",
-                                        color = if (categoryIsSearch) {
-                                            Color.Gray
-                                        } else {
-                                            Color.Unspecified
-                                        }
+                                        "Delete station",
+                                        color =
+                                            if (categoryIsSearch) {
+                                                Color.Gray
+                                            } else {
+                                                Color.Unspecified
+                                            }
                                     )
                                 },
                                 enabled = !categoryIsSearch,
@@ -311,26 +363,36 @@ fun NowPlayingCard(
                             )
                         }
                     }
+
+                    NavigationIndicator(
+                        included = includedInNavigation,
+                        onClick = onNavigationToggle,
+                        modifier = Modifier
+                            .width(42.dp)
+                            .height(34.dp)
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Artwork begins below the title, aligned with the category text edge.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
+                verticalAlignment =
+                    Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
                         .size(54.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .background(
+                            MaterialTheme.colorScheme
+                                .surfaceVariant
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "♫",
-                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 29.sp
                     )
                 }
@@ -338,44 +400,59 @@ fun NowPlayingCard(
                 Spacer(modifier = Modifier.width(10.dp))
 
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(top = 2.dp)
+                    modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = stationGenre,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 16.sp
+                        text =
+                            nowPlayingText.ifBlank {
+                                "Live radio"
+                            },
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurface,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
 
-                    Spacer(modifier = Modifier.height(7.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Station $stationNumber of $stationCount",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 14.sp
+                    if (secondaryInformation.isNotBlank()) {
+                        Spacer(
+                            modifier = Modifier.height(3.dp)
                         )
 
-                        Spacer(modifier = Modifier.weight(1f))
-
-                        if (isPlaying) {
-                            MiniVuMeter(isPlaying = true)
-                        } else {
-                            Text(
-                                text = "Ready",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                        Text(
+                            text = secondaryInformation,
+                            modifier = Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                velocity =
+                                    MarqueeDefaults.Velocity * 1.6f
+                            ),
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            fontSize = 14.sp,
+                            maxLines = 1
+                        )
                     }
                 }
-            }
 
+                Spacer(modifier = Modifier.width(10.dp))
+
+                if (isPlaying) {
+                    MiniVuMeter(isPlaying = true)
+                } else {
+                    Text(
+                        text = "Stopped",
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                        fontSize = 14.sp,
+                        fontWeight =
+                            FontWeight.SemiBold
+                    )
+                }
+            }
         }
     }
 }

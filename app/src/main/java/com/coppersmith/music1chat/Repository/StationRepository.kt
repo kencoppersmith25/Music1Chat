@@ -76,6 +76,7 @@ class StationRepository {
                 name = "KMNO Maui",
                 streamUrl = "http://kmno.streamguys1.com/live",
                 genre = "Hawaiian",
+                callLetters = "KMNO",
                 city = "Maui",
                 country = "United States",
                 sourceType = SourceType.STREAM
@@ -99,6 +100,7 @@ class StationRepository {
                 name = "Classical King FM",
                 streamUrl = "https://classicalking.streamguys1.com/king-fm-aac-128k",
                 genre = "Classical",
+                callLetters = "KING-FM",
                 city = "Seattle",
                 country = "United States",
                 sourceType = SourceType.STREAM
@@ -111,6 +113,7 @@ class StationRepository {
                 name = "WBGO Jazz 88.3",
                 streamUrl = "https://ais-sa8.cdnstream1.com/3629_128.mp3",
                 genre = "Jazz",
+                callLetters = "WBGO",
                 city = "Newark",
                 country = "United States",
                 sourceType = SourceType.STREAM
@@ -123,6 +126,7 @@ class StationRepository {
                 name = "KEXP Seattle",
                 streamUrl = "https://kexp.streamguys1.com/kexp160.aac",
                 genre = "Alternative",
+                callLetters = "KEXP",
                 city = "Seattle",
                 country = "United States",
                 sourceType = SourceType.STREAM
@@ -135,11 +139,13 @@ class StationRepository {
                 name = "KDFC Classical",
                 streamUrl = "http://kdfc.streamguys1.com/kdfc-128.mp3",
                 genre = "Classical",
+                callLetters = "KDFC",
                 city = "San Francisco",
                 country = "United States",
                 sourceType = SourceType.STREAM
             )
         )
+
         add(
             Station(
                 id = 7,

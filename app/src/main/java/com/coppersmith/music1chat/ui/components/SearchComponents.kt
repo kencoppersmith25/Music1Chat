@@ -41,8 +41,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,7 +76,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.delay
 
 
@@ -93,7 +90,7 @@ fun GenreSearchBox(
     onDismissMenu: () -> Unit,
     onGenreSelected: (String) -> Unit
 ) {
-    Box(
+    Column(
         modifier = Modifier.fillMaxWidth()
     ) {
         OutlinedTextField(
@@ -105,7 +102,8 @@ fun GenreSearchBox(
             placeholder = {
                 Text(
                     text = "Search genres",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color =
+                        MaterialTheme.colorScheme.onSurfaceVariant
                 )
             },
             trailingIcon = {
@@ -121,9 +119,9 @@ fun GenreSearchBox(
                                 Icons.Default.ArrowDropDown,
                             contentDescription =
                                 "Show genres",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier =
-                                Modifier.size(34.dp)
+                            tint =
+                                MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(34.dp)
                         )
                     }
 
@@ -134,9 +132,9 @@ fun GenreSearchBox(
                             imageVector =
                                 Icons.Default.Search,
                             contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurface,
-                            modifier =
-                                Modifier.size(28.dp)
+                            tint =
+                                MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
@@ -152,37 +150,57 @@ fun GenreSearchBox(
             ),
             colors =
                 OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    cursorColor = MaterialTheme.colorScheme.primary,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                    focusedTextColor =
+                        MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor =
+                        MaterialTheme.colorScheme.onSurface,
+                    cursorColor =
+                        MaterialTheme.colorScheme.primary,
+                    focusedBorderColor =
+                        MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor =
+                        MaterialTheme.colorScheme.outline
                 )
         )
 
-        DropdownMenu(
-            expanded =
-                showGenreMenu &&
-                        filteredGenres.isNotEmpty(),
-            onDismissRequest = onDismissMenu,
-            properties =
-                PopupProperties(focusable = false),
-            modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .heightIn(max = 520.dp)
+        if (
+            showGenreMenu &&
+            filteredGenres.isNotEmpty()
         ) {
-            filteredGenres.forEach { genre ->
-                DropdownMenuItem(
-                    text = {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp),
+                shape = RoundedCornerShape(14.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 6.dp,
+                color =
+                    MaterialTheme.colorScheme.surfaceContainer
+            ) {
+                Column(
+                    modifier = Modifier.verticalScroll(
+                        rememberScrollState()
+                    )
+                ) {
+                    filteredGenres.forEach { genre ->
                         Text(
                             text = genre,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onDismissMenu()
+                                    onGenreSelected(genre)
+                                }
+                                .padding(
+                                    horizontal = 18.dp,
+                                    vertical = 13.dp
+                                ),
+                            color =
+                                MaterialTheme.colorScheme.onSurface,
                             fontSize = 18.sp
                         )
-                    },
-                    onClick = {
-                        onGenreSelected(genre)
                     }
-                )
+                }
             }
         }
     }
