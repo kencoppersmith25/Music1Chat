@@ -1,7 +1,16 @@
 package com.coppersmith.music1chat.ui.screens
 
+import android.util.Log
+
+
+
+
+
+
 // Music1Chat coordinated release
-// Release: 2026-07-16 v01
+// Release: 2026-07-17 v05
+// DROP-IN REPLACEMENT
+// Change: extracts the unified category chooser into reusable CategoryPicker.kt.
 // Matched files: MainScreen, StationListScreen, AppPreferences
 
 // PLAYBACK SESSION INTEGRATION V2
@@ -10,6 +19,7 @@ package com.coppersmith.music1chat.ui.screens
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -38,6 +48,7 @@ import androidx.compose.ui.unit.sp
 import com.coppersmith.music1chat.GenreData
 import com.coppersmith.music1chat.RadioPlayer
 import com.coppersmith.music1chat.models.Category
+import com.coppersmith.music1chat.models.CategoryType
 import com.coppersmith.music1chat.persistence.AppPreferences
 import com.coppersmith.music1chat.persistence.SavedSearchCategory
 import com.coppersmith.music1chat.repository.MusicRepository
@@ -48,6 +59,7 @@ import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.ui.components.CategoryCard
+import com.coppersmith.music1chat.ui.components.CategoryPicker
 import com.coppersmith.music1chat.ui.components.GenreSearchBox
 import com.coppersmith.music1chat.ui.components.NowPlayingCard
 import com.coppersmith.music1chat.ui.components.PlaybackControls
@@ -233,6 +245,18 @@ fun MainScreen() {
 
     var deleteCategoryKey by remember {
         mutableStateOf<String?>(null)
+    }
+
+    var stationToSaveElsewhere by remember {
+        mutableStateOf<com.coppersmith.music1chat.models.Station?>(null)
+    }
+
+    var destinationCategorySearchText by remember {
+        mutableStateOf("")
+    }
+
+    var destinationCategoryPickerTitle by remember {
+        mutableStateOf("Save to another category")
     }
 
     var searchText by remember {
@@ -773,6 +797,13 @@ fun MainScreen() {
                 return@launch
             }
 
+            Log.d(
+                "KenCheck",
+                "Search submitted='$searchQuery', " +
+                        "local=${localResult.stations.size}, " +
+                        "live=${liveResult.stations.size}"
+            )
+
             val mergedStations =
                 (localResult.stations + liveResult.stations)
                     .onEach { station ->
@@ -791,6 +822,11 @@ fun MainScreen() {
                                     .lowercase()
                             }
                     }
+
+            Log.d(
+                "KenCheck",
+                "Search merged='$searchQuery', results=${mergedStations.size}"
+            )
 
             radioPlayer.stop()
 
@@ -887,10 +923,12 @@ fun MainScreen() {
                 )
             }
 
+        /*
+         * Preserve the exact submitted text. Suggestions are choices only;
+         * they must not silently replace microphone or keyboard input.
+         */
         val selectedSearch =
-            exactMatch
-                ?: searchSuggestions.firstOrNull()
-                ?: typedText
+            exactMatch ?: typedText
 
         if (selectedSearch.isNotBlank()) {
             runSearch(selectedSearch)
@@ -1800,85 +1838,29 @@ fun MainScreen() {
                             val sourceStation =
                                 displayedStation
 
-                            val targetCategory =
-                                repositoryCategories
-                                    .firstOrNull { category ->
-                                        category.name.equals(
-                                            sessionState.categoryName,
-                                            ignoreCase = true
-                                        )
-                                    }
-                                    ?: repositoryCategories
-                                        .firstOrNull { category ->
-                                            category.name.equals(
-                                                sourceStation.genre,
-                                                ignoreCase = true
-                                            )
-                                        }
+                            stationToSaveElsewhere =
+                                sourceStation
 
-                            if (targetCategory == null) {
-                                navigationStatusMessage =
-                                    "No matching permanent category was found."
-                                return@NowPlayingCard
-                            }
-
-                            val existingStation =
-                                musicRepository.stations
-                                    .getByStreamUrl(
-                                        sourceStation.streamUrl
-                                    )
-
-                            val savedStation =
-                                if (existingStation != null) {
-                                    existingStation
+                            destinationCategoryPickerTitle =
+                                if (sessionState.isSearch) {
+                                    "Save to category"
                                 } else {
-                                    val nextStationId =
-                                        (musicRepository.stations
-                                            .getAll()
-                                            .maxOfOrNull { station ->
-                                                station.id
-                                            } ?: 0L) + 1L
-
-                                    sourceStation.copy(
-                                        id = nextStationId,
-                                        includedInNavigation = true,
-                                        failedThisSession = false
-                                    ).also { stationToSave ->
-                                        musicRepository.stations.add(
-                                            stationToSave
-                                        )
-                                    }
+                                    "Move to category"
                                 }
 
-                            val added =
-                                membershipRepository
-                                    .addStationToCategory(
-                                        categoryId =
-                                            targetCategory.id,
-                                        stationId =
-                                            savedStation.id
-                                    )
-
-                            appPreferences
-                                .savePermanentLibrary(
-                                    stationRepository =
-                                        musicRepository.stations,
-                                    membershipRepository =
-                                        membershipRepository
-                                )
-
-                            navigationStatusMessage =
-                                if (added) {
-                                    "Saved ${savedStation.name} to ${targetCategory.name}."
-                                } else {
-                                    "${savedStation.name} is already in ${targetCategory.name}."
-                                }
-
-                            stationStateVersion++
+                            destinationCategorySearchText =
+                                sessionState.categoryName
+                                    .ifBlank {
+                                        sourceStation.genre
+                                    }
+                                    .trim()
                         },
                         onCopyClick = {
-                            navigationStatusMessage =
-                                "Copy to multiple categories is not wired yet."
+                            destinationCategoryPickerTitle =
+                                "Save to another category"
+                            destinationCategorySearchText = ""
+                            stationToSaveElsewhere =
+                                displayedStation
                         },
                         onDeleteClick = {
                         }
@@ -1944,6 +1926,108 @@ fun MainScreen() {
                 )
             }
         }
+        val pendingSaveStation =
+            stationToSaveElsewhere
+
+        if (pendingSaveStation != null) {
+            CategoryPicker(
+                title = destinationCategoryPickerTitle,
+                searchText = destinationCategorySearchText,
+                categories = repositoryCategories,
+                suggestedCategoryNames = genres,
+                stationCountForCategory = { category ->
+                    membershipRepository
+                        .getStationsForCategory(category.id)
+                        .size
+                },
+                onSearchTextChanged = { newText ->
+                    destinationCategorySearchText = newText
+                },
+                onCategorySelected = { categoryName, existingCategory ->
+                    val destinationCategory =
+                        existingCategory
+                            ?: Category(
+                                id =
+                                    (musicRepository
+                                        .categories
+                                        .getAll()
+                                        .maxOfOrNull { category ->
+                                            category.id
+                                        } ?: 0L) + 1L,
+                                name = categoryName,
+                                type = CategoryType.STANDARD,
+                                includedInNavigation = true,
+                                sortOrder =
+                                    musicRepository
+                                        .categories
+                                        .getAll()
+                                        .size
+                            ).also { newCategory ->
+                                musicRepository
+                                    .categories
+                                    .add(newCategory)
+                            }
+
+                    val existingStation =
+                        musicRepository.stations
+                            .getByStreamUrl(
+                                pendingSaveStation.streamUrl
+                            )
+
+                    val stationForLibrary =
+                        existingStation
+                            ?: pendingSaveStation
+                                .copy(
+                                    id =
+                                        (musicRepository
+                                            .stations
+                                            .getAll()
+                                            .maxOfOrNull { station ->
+                                                station.id
+                                            } ?: 0L) + 1L,
+                                    includedInNavigation = true,
+                                    failedThisSession = false
+                                )
+                                .also { station ->
+                                    musicRepository
+                                        .stations
+                                        .add(station)
+                                }
+
+                    val added =
+                        membershipRepository
+                            .addStationToCategory(
+                                categoryId = destinationCategory.id,
+                                stationId = stationForLibrary.id
+                            )
+
+                    appPreferences.savePermanentLibrary(
+                        stationRepository = musicRepository.stations,
+                        membershipRepository = membershipRepository
+                    )
+
+                    navigationStatusMessage =
+                        if (added) {
+                            "Saved ${stationForLibrary.name} to ${destinationCategory.name}."
+                        } else {
+                            "${stationForLibrary.name} is already in ${destinationCategory.name}."
+                        }
+
+                    stationToSaveElsewhere = null
+                    destinationCategorySearchText = ""
+                    destinationCategoryPickerTitle =
+                        "Save to another category"
+                    stationStateVersion++
+                },
+                onDismiss = {
+                    stationToSaveElsewhere = null
+                    destinationCategorySearchText = ""
+                    destinationCategoryPickerTitle =
+                        "Save to another category"
+                }
+            )
+        }
+
         val pendingDeleteKey =
             deleteCategoryKey
 

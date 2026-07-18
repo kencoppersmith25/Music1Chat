@@ -1,5 +1,12 @@
 package com.coppersmith.music1chat.ui.components
 
+// Music1Chat coordinated release
+// File: PlayerCards.kt
+// Release: 2026-07-17 v02
+// DROP-IN REPLACEMENT
+// Change: removes Live Radio/Stopped labels, keeps the VU meter visible, and disables redundant Move to category.
+
+
 import com.coppersmith.music1chat.ui.components.NavigationIndicator
 import com.coppersmith.music1chat.ui.components.MiniVuMeter
 import androidx.compose.animation.animateColorAsState
@@ -225,10 +232,13 @@ fun NowPlayingCard(
         mutableStateOf(false)
     }
 
+    val hasNowPlayingMetadata =
+        nowPlayingText.isNotBlank()
+
     val secondaryInformation =
         listOf(
-            stationCallLetters,
             stationGenre,
+            stationCallLetters,
             stationCity,
             stationCountry
         )
@@ -236,10 +246,17 @@ fun NowPlayingCard(
             .distinct()
             .joinToString("  •  ")
 
+    val stationPositionText =
+        if (stationCount > 0) {
+            "$stationNumber of $stationCount"
+        } else {
+            ""
+        }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(174.dp),
+            .height(188.dp),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor =
@@ -250,40 +267,92 @@ fun NowPlayingCard(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
-                    start = 14.dp,
+                    start = 16.dp,
                     end = 3.dp,
-                    top = 10.dp,
-                    bottom = 10.dp
+                    top = 11.dp,
+                    bottom = 11.dp
                 )
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment =
-                    Alignment.CenterVertically
+                    Alignment.Top
             ) {
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(end = 8.dp)
+                        .padding(
+                            top = 2.dp,
+                            end = 8.dp
+                        )
                 ) {
-                    Text(
-                        text = stationName,
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    if (hasNowPlayingMetadata) {
+                        Text(
+                            text = nowPlayingText,
+                            modifier = Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                velocity =
+                                    MarqueeDefaults.Velocity * 1.35f
+                            ),
+                            color =
+                                MaterialTheme.colorScheme.onSurface,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
 
-                    Text(
-                        text =
-                            "Station $stationNumber of $stationCount",
-                        color =
-                            MaterialTheme.colorScheme
-                                .onSurfaceVariant,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
+                        Spacer(
+                            modifier = Modifier.height(5.dp)
+                        )
+
+                        Text(
+                            text =
+                                if (stationPositionText.isBlank()) {
+                                    stationName
+                                } else {
+                                    "$stationName  ($stationPositionText)"
+                                },
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Text(
+                            text = stationName,
+                            modifier = Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                velocity =
+                                    MarqueeDefaults.Velocity * 1.35f
+                            ),
+                            color =
+                                MaterialTheme.colorScheme.onSurface,
+                            fontSize = 25.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+
+                        if (stationPositionText.isNotBlank()) {
+                            Spacer(
+                                modifier = Modifier.height(4.dp)
+                            )
+
+                            Text(
+                                text =
+                                    "Station $stationPositionText",
+                                color =
+                                    MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                fontSize = 14.sp,
+                                fontWeight =
+                                    FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
 
                 Row(
@@ -320,13 +389,21 @@ fun NowPlayingCard(
                             DropdownMenuItem(
                                 text = {
                                     Text(
-                                        if (categoryIsSearch) {
-                                            "Save to category"
-                                        } else {
-                                            "Move to category"
-                                        }
+                                        text =
+                                            if (categoryIsSearch) {
+                                                "Save to category"
+                                            } else {
+                                                "Move to category"
+                                            },
+                                        color =
+                                            if (categoryIsSearch) {
+                                                Color.Unspecified
+                                            } else {
+                                                Color.Gray
+                                            }
                                     )
                                 },
+                                enabled = categoryIsSearch,
                                 onClick = {
                                     showStationMenu = false
                                     onSaveOrMoveClick()
@@ -335,7 +412,9 @@ fun NowPlayingCard(
 
                             DropdownMenuItem(
                                 text = {
-                                    Text("Save to another category")
+                                    Text(
+                                        "Save to another category"
+                                    )
                                 },
                                 onClick = {
                                     showStationMenu = false
@@ -374,84 +453,45 @@ fun NowPlayingCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(
+                modifier = Modifier.height(18.dp)
+            )
+
+            if (secondaryInformation.isNotBlank()) {
+                Text(
+                    text = secondaryInformation,
+                    modifier = Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        velocity =
+                            MarqueeDefaults.Velocity * 1.5f
+                    ),
+                    color =
+                        MaterialTheme.colorScheme
+                            .onSurfaceVariant,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+            }
+
+            Spacer(
+                modifier = Modifier.weight(1f)
+            )
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment =
-                    Alignment.CenterVertically
+                    Alignment.CenterVertically,
+                horizontalArrangement =
+                    Arrangement.End
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            MaterialTheme.colorScheme
-                                .surfaceVariant
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "♫",
-                        fontSize = 29.sp
-                    )
-                }
+                MiniVuMeter(
+                    isPlaying = isPlaying
+                )
 
-                Spacer(modifier = Modifier.width(10.dp))
-
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(
-                        text =
-                            nowPlayingText.ifBlank {
-                                "Live radio"
-                            },
-                        color =
-                            MaterialTheme.colorScheme
-                                .onSurface,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    if (secondaryInformation.isNotBlank()) {
-                        Spacer(
-                            modifier = Modifier.height(3.dp)
-                        )
-
-                        Text(
-                            text = secondaryInformation,
-                            modifier = Modifier.basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                velocity =
-                                    MarqueeDefaults.Velocity * 1.6f
-                            ),
-                            color =
-                                MaterialTheme.colorScheme
-                                    .onSurfaceVariant,
-                            fontSize = 14.sp,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                if (isPlaying) {
-                    MiniVuMeter(isPlaying = true)
-                } else {
-                    Text(
-                        text = "Stopped",
-                        color =
-                            MaterialTheme.colorScheme
-                                .onSurfaceVariant,
-                        fontSize = 14.sp,
-                        fontWeight =
-                            FontWeight.SemiBold
-                    )
-                }
+                Spacer(
+                    modifier = Modifier.width(10.dp)
+                )
             }
         }
     }
