@@ -2,9 +2,9 @@ package com.coppersmith.music1chat.ui.components
 
 // Music1Chat coordinated release
 // File: PlayerCards.kt
-// Release: 2026-07-17 v02
+// Release: 2026-07-19 v04
 // DROP-IN REPLACEMENT
-// Change: removes Live Radio/Stopped labels, keeps the VU meter visible, and disables redundant Move to category.
+// Change: prioritizes song/artist metadata and falls back cleanly to station name when metadata is unavailable.
 
 
 import com.coppersmith.music1chat.ui.components.NavigationIndicator
@@ -217,7 +217,8 @@ fun NowPlayingCard(
     stationCallLetters: String,
     stationCity: String,
     stationCountry: String,
-    nowPlayingText: String,
+    songTitle: String,
+    songArtist: String,
     stationNumber: Int,
     stationCount: Int,
     categoryIsSearch: Boolean,
@@ -231,9 +232,6 @@ fun NowPlayingCard(
     var showStationMenu by remember {
         mutableStateOf(false)
     }
-
-    val hasNowPlayingMetadata =
-        nowPlayingText.isNotBlank()
 
     val secondaryInformation =
         listOf(
@@ -286,25 +284,58 @@ fun NowPlayingCard(
                             end = 8.dp
                         )
                 ) {
-                    if (hasNowPlayingMetadata) {
+                    val hasSongInformation =
+                        songTitle.isNotBlank() || songArtist.isNotBlank()
+
+                    val primaryText =
+                        when {
+                            songTitle.isNotBlank() -> songTitle
+                            songArtist.isNotBlank() -> songArtist
+                            else -> stationName
+                        }
+
+                    Text(
+                        text = primaryText,
+                        modifier = Modifier.basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            velocity =
+                                MarqueeDefaults.Velocity * 1.65f
+                        ),
+                        color =
+                            MaterialTheme.colorScheme.onSurface,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+
+                    if (
+                        songArtist.isNotBlank() &&
+                        songArtist != primaryText
+                    ) {
+                        Spacer(
+                            modifier = Modifier.height(4.dp)
+                        )
+
                         Text(
-                            text = nowPlayingText,
+                            text = songArtist,
                             modifier = Modifier.basicMarquee(
                                 iterations = Int.MAX_VALUE,
                                 velocity =
-                                    MarqueeDefaults.Velocity * 1.35f
+                                    MarqueeDefaults.Velocity * 1.55f
                             ),
                             color =
-                                MaterialTheme.colorScheme.onSurface,
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold,
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1
                         )
+                    }
 
-                        Spacer(
-                            modifier = Modifier.height(5.dp)
-                        )
+                    Spacer(
+                        modifier = Modifier.height(5.dp)
+                    )
 
+                    if (hasSongInformation) {
                         Text(
                             text =
                                 if (stationPositionText.isBlank()) {
@@ -312,47 +343,29 @@ fun NowPlayingCard(
                                 } else {
                                     "$stationName  ($stationPositionText)"
                                 },
-                            color =
-                                MaterialTheme.colorScheme
-                                    .onSurfaceVariant,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        Text(
-                            text = stationName,
                             modifier = Modifier.basicMarquee(
                                 iterations = Int.MAX_VALUE,
                                 velocity =
                                     MarqueeDefaults.Velocity * 1.35f
                             ),
                             color =
-                                MaterialTheme.colorScheme.onSurface,
-                            fontSize = 25.sp,
-                            fontWeight = FontWeight.Bold,
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1
                         )
-
-                        if (stationPositionText.isNotBlank()) {
-                            Spacer(
-                                modifier = Modifier.height(4.dp)
-                            )
-
-                            Text(
-                                text =
-                                    "Station $stationPositionText",
-                                color =
-                                    MaterialTheme.colorScheme
-                                        .onSurfaceVariant,
-                                fontSize = 14.sp,
-                                fontWeight =
-                                    FontWeight.SemiBold,
-                                maxLines = 1
-                            )
-                        }
+                    } else if (stationPositionText.isNotBlank()) {
+                        Text(
+                            text = "Station $stationPositionText",
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
                     }
+
+
                 }
 
                 Row(

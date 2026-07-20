@@ -24,6 +24,11 @@ object MediaButtonCommandBus {
         mutableCommands.asSharedFlow()
 
     fun send(command: MediaButtonCommand) {
-        mutableCommands.tryEmit(command)
+        val emitted = mutableCommands.tryEmit(command)
+
+        android.util.Log.d(
+            "KenCheck",
+            "CommandBus send=$command emitted=$emitted subscribers=${mutableCommands.subscriptionCount.value}"
+        )
     }
 }

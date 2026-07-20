@@ -17,6 +17,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.coppersmith.music1chat.persistence.AppPreferences
+import com.coppersmith.music1chat.diagnostics.RideLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +25,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Metadata
+import androidx.media3.extractor.metadata.icy.IcyInfo
+
+
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
@@ -151,6 +157,40 @@ class PlaybackService : MediaSessionService() {
                     playbackGeneration++
                     retryCount = 0
                     cancelRetry()
+
+                    val stationName =
+                        mediaItem
+                            ?.mediaMetadata
+                            ?.station
+                            ?.toString()
+                            .orEmpty()
+
+                    val mediaId =
+                        mediaItem
+                            ?.mediaId
+                            .orEmpty()
+
+                    val uri =
+                        mediaItem
+                            ?.localConfiguration
+                            ?.uri
+                            ?.toString()
+                            .orEmpty()
+
+                    RideLogger.log(
+                        "PLAYER_TRANSITION " +
+                                "reason=$reason " +
+                                "station='$stationName' " +
+                                "mediaId='$mediaId' " +
+                                "uri='$uri' " +
+                                "generation=$playbackGeneration"
+                    )
+
+                    Log.d(
+                        "KenCheck",
+                        "Player transition reason=$reason " +
+                                "station='$stationName' mediaId='$mediaId'"
+                    )
                 }
 
                 override fun onPlayWhenReadyChanged(
@@ -159,6 +199,16 @@ class PlaybackService : MediaSessionService() {
                 ) {
                     playbackRequested = playWhenReady
 
+                    RideLogger.log(
+                        "PLAYER_PLAY_WHEN_READY " +
+                                "value=$playWhenReady " +
+                                "reason=$reason " +
+                                "station='${currentStationName()}' " +
+                                "mediaId='${player.currentMediaItem?.mediaId.orEmpty()}' " +
+                                "state=${player.playbackState} " +
+                                "generation=$playbackGeneration"
+                    )
+
                     if (!playWhenReady) {
                         playbackGeneration++
                         retryCount = 0
@@ -166,7 +216,19 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
 
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                override fun onIsPlayingChanged(
+                    isPlaying: Boolean
+                ) {
+                    RideLogger.log(
+                        "PLAYER_IS_PLAYING " +
+                                "value=$isPlaying " +
+                                "station='${currentStationName()}' " +
+                                "mediaId='${player.currentMediaItem?.mediaId.orEmpty()}' " +
+                                "state=${player.playbackState} " +
+                                "playWhenReady=${player.playWhenReady} " +
+                                "generation=$playbackGeneration"
+                    )
+
                     if (isPlaying) {
                         retryCount = 0
                         cancelRetry()
@@ -178,7 +240,140 @@ class PlaybackService : MediaSessionService() {
                     }
                 }
 
+                override fun onPlaybackStateChanged(
+                    playbackState: Int
+                ) {
+                    val stateName =
+                        when (playbackState) {
+                            Player.STATE_IDLE -> "IDLE"
+                            Player.STATE_BUFFERING -> "BUFFERING"
+                            Player.STATE_READY -> "READY"
+                            Player.STATE_ENDED -> "ENDED"
+                            else -> playbackState.toString()
+                        }
+
+                    RideLogger.log(
+                        "PLAYER_STATE " +
+                                "state=$stateName " +
+                                "station='${currentStationName()}' " +
+                                "mediaId='${player.currentMediaItem?.mediaId.orEmpty()}' " +
+                                "playWhenReady=${player.playWhenReady} " +
+                                "isPlaying=${player.isPlaying} " +
+                                "generation=$playbackGeneration"
+                    )
+                }
+
+                override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
+                    val title =
+                        mediaMetadata.title
+                            ?.toString()
+                            ?.trim()
+                            .orEmpty()
+
+                    val artist =
+                        mediaMetadata.artist
+                            ?.toString()
+                            ?.trim()
+                            .orEmpty()
+
+                    Log.d(
+                        "M1Metadata",
+                        "PlaybackService metadata changed: " +
+                                "title='$title', artist='$artist'"
+                    )
+                }
+
+                override fun onMetadata(metadata: Metadata) {
+                    for (index in 0 until metadata.length()) {
+                        val entry = metadata[index]
+
+                        if (entry !is IcyInfo) {
+                            continue
+                        }
+
+                        val streamTitle =
+                            entry.title
+                                ?.trim()
+                                .orEmpty()
+
+                        if (streamTitle.isBlank()) {
+                            continue
+                        }
+
+                        val separatorIndex =
+                            streamTitle.indexOf(" - ")
+
+                        val artist =
+                            if (separatorIndex > 0) {
+                                streamTitle
+                                    .substring(0, separatorIndex)
+                                    .trim()
+                            } else {
+                                ""
+                            }
+
+                        val title =
+                            if (separatorIndex > 0) {
+                                streamTitle
+                                    .substring(separatorIndex + 3)
+                                    .trim()
+                            } else {
+                                streamTitle
+                            }
+
+                        val currentItem =
+                            player.currentMediaItem
+                                ?: continue
+
+                        val existingMetadata =
+                            currentItem.mediaMetadata
+
+                        /*
+                         * Ignore duplicate ICY entries. Many stations transmit the same
+                         * metadata block repeatedly.
+                         */
+                        if (
+                            existingMetadata.title?.toString() == title &&
+                            existingMetadata.artist?.toString() == artist
+                        ) {
+                            continue
+                        }
+
+                        val updatedMetadata =
+                            existingMetadata
+                                .buildUpon()
+                                .setTitle(title)
+                                .setArtist(artist)
+                                .build()
+
+                        val updatedItem =
+                            currentItem
+                                .buildUpon()
+                                .setMediaMetadata(updatedMetadata)
+                                .build()
+
+                        Log.d(
+                            "M1Metadata",
+                            "Publishing ICY metadata: " +
+                                    "artist='$artist', title='$title'"
+                        )
+
+                        player.replaceMediaItem(
+                            player.currentMediaItemIndex,
+                            updatedItem
+                        )
+                    }
+                }
+
                 override fun onPlayerError(error: PlaybackException) {
+                    RideLogger.log(
+                        "PLAYER_ERROR " +
+                                "station='${currentStationName()}' " +
+                                "mediaId='${player.currentMediaItem?.mediaId.orEmpty()}' " +
+                                "code='${error.errorCodeName}' " +
+                                "message='${error.message.orEmpty()}' " +
+                                "generation=$playbackGeneration"
+                    )
                     Log.e(
                         "KenCheck",
                         "Playback service error for ${currentStationName()}: " +
@@ -308,11 +503,18 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun currentStationName(): String {
-        return player.currentMediaItem
-            ?.mediaMetadata
-            ?.title
+        val metadata =
+            player.currentMediaItem
+                ?.mediaMetadata
+
+        return metadata
+            ?.station
             ?.toString()
             ?.takeIf { it.isNotBlank() }
+            ?: metadata
+                ?.title
+                ?.toString()
+                ?.takeIf { it.isNotBlank() }
             ?: "current station"
     }
 

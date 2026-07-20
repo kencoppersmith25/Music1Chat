@@ -38,11 +38,8 @@ data class PlaybackSessionState(
             when (mode) {
                 PlaybackSessionMode.CATEGORY -> categoryName
                 PlaybackSessionMode.SEARCH ->
-                    if (categoryName.isBlank()) {
-                        "Search"
-                    } else {
-                        "Search: $categoryName"
-                    }
+                    if (categoryName.isBlank()) "Search"
+                    else "Search: $categoryName"
             }
 
     val isSearch: Boolean
@@ -58,6 +55,11 @@ class PlaybackSessionController(
     private var state = initialState.normalized()
 
     fun getState(): PlaybackSessionState = state
+
+    fun clear(): PlaybackSessionState {
+        state = PlaybackSessionState()
+        return state
+    }
 
     fun showCategory(
         categoryId: Long,
@@ -123,17 +125,12 @@ class PlaybackSessionController(
                     currentStationId
                 ),
                 playbackRequested =
-                    state.playbackRequested &&
-                            stations.isNotEmpty()
+                    state.playbackRequested && stations.isNotEmpty()
             ).normalized()
 
         return state
     }
 
-    /**
-     * Manual selection deliberately permits a non-navigation station.
-     * That is how the category/station list can open one explicitly.
-     */
     fun selectStation(
         stationId: Long,
         startPlayback: Boolean = true
@@ -143,9 +140,7 @@ class PlaybackSessionController(
                 it.id == stationId
             }
 
-        if (selectedIndex < 0) {
-            return state
-        }
+        if (selectedIndex < 0) return state
 
         state =
             state.copy(
@@ -175,36 +170,31 @@ class PlaybackSessionController(
     fun play(): PlaybackSessionState {
         state =
             state.copy(
-                playbackRequested =
-                    state.currentStation != null
+                playbackRequested = state.currentStation != null
             )
         return state
     }
 
     fun stop(): PlaybackSessionState {
-        state =
-            state.copy(playbackRequested = false)
+        state = state.copy(playbackRequested = false)
         return state
     }
 
     fun togglePlayback(): PlaybackSessionState =
         if (state.playbackRequested) stop() else play()
 
-    fun markCurrentStationFailedAndAdvance():
-            PlaybackSessionState {
+    fun markCurrentStationFailedAndAdvance(): PlaybackSessionState {
         state.currentStation?.failedThisSession = true
 
         val eligibleExists =
             state.stations.any {
-                it.includedInNavigation &&
-                        !it.failedThisSession
+                it.includedInNavigation && !it.failedThisSession
             }
 
         if (!eligibleExists) {
             state =
-                state.copy(
-                    playbackRequested = false
-                ).normalized()
+                state.copy(playbackRequested = false)
+                    .normalized()
             return state
         }
 
@@ -228,14 +218,10 @@ class PlaybackSessionController(
         state =
             state.copy(
                 currentIndex =
-                    if (restoredIndex >= 0) {
-                        restoredIndex
-                    } else {
-                        state.safeCurrentIndex
-                    },
+                    if (restoredIndex >= 0) restoredIndex
+                    else state.safeCurrentIndex,
                 playbackRequested =
-                    playbackRequested &&
-                            state.stations.isNotEmpty()
+                    playbackRequested && state.stations.isNotEmpty()
             ).normalized()
 
         return state
@@ -245,19 +231,15 @@ class PlaybackSessionController(
         direction: Int,
         startPlayback: Boolean
     ): PlaybackSessionState {
-        if (state.stations.isEmpty()) {
-            return state
-        }
+        if (state.stations.isEmpty()) return state
 
         val eligibleCount =
             state.stations.count {
-                it.includedInNavigation &&
-                        !it.failedThisSession
+                it.includedInNavigation && !it.failedThisSession
             }
 
         if (eligibleCount == 0) {
-            state =
-                state.copy(playbackRequested = false)
+            state = state.copy(playbackRequested = false)
             return state
         }
 
@@ -266,24 +248,14 @@ class PlaybackSessionController(
         repeat(state.stations.size) {
             candidateIndex =
                 if (direction < 0) {
-                    if (candidateIndex <= 0) {
-                        state.stations.lastIndex
-                    } else {
-                        candidateIndex - 1
-                    }
+                    if (candidateIndex <= 0) state.stations.lastIndex
+                    else candidateIndex - 1
                 } else {
-                    if (
-                        candidateIndex >=
-                        state.stations.lastIndex
-                    ) {
-                        0
-                    } else {
-                        candidateIndex + 1
-                    }
+                    if (candidateIndex >= state.stations.lastIndex) 0
+                    else candidateIndex + 1
                 }
 
-            val candidate =
-                state.stations[candidateIndex]
+            val candidate = state.stations[candidateIndex]
 
             if (
                 candidate.includedInNavigation &&
@@ -306,12 +278,7 @@ class PlaybackSessionController(
         stations: List<Station>,
         preferredStationId: Long?
     ): Int {
-        if (
-            stations.isEmpty() ||
-            preferredStationId == null
-        ) {
-            return 0
-        }
+        if (stations.isEmpty() || preferredStationId == null) return 0
 
         return stations.indexOfFirst {
             it.id == preferredStationId
@@ -320,14 +287,12 @@ class PlaybackSessionController(
         } ?: 0
     }
 
-    private fun PlaybackSessionState.normalized():
-            PlaybackSessionState {
+    private fun PlaybackSessionState.normalized(): PlaybackSessionState {
         val normalizedIndex =
             when {
                 stations.isEmpty() -> 0
                 currentIndex < 0 -> 0
-                currentIndex > stations.lastIndex ->
-                    stations.lastIndex
+                currentIndex > stations.lastIndex -> stations.lastIndex
                 else -> currentIndex
             }
 
@@ -335,8 +300,7 @@ class PlaybackSessionController(
             categoryName = categoryName.trim(),
             currentIndex = normalizedIndex,
             playbackRequested =
-                playbackRequested &&
-                        stations.isNotEmpty()
+                playbackRequested && stations.isNotEmpty()
         )
     }
 }

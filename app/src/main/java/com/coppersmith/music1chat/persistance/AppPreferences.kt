@@ -5,8 +5,11 @@ package com.coppersmith.music1chat.persistence
 // Matched files: MainScreen, StationListScreen, AppPreferences
 
 import android.content.Context
+import com.coppersmith.music1chat.models.Category
+import com.coppersmith.music1chat.models.CategoryType
 import com.coppersmith.music1chat.models.SourceType
 import com.coppersmith.music1chat.models.Station
+import com.coppersmith.music1chat.repository.CategoryRepository
 import com.coppersmith.music1chat.repository.MembershipRepository
 import com.coppersmith.music1chat.repository.StationRepository
 import org.json.JSONArray
@@ -139,121 +142,174 @@ class AppPreferences(
     }
 
 
+    fun hasPermanentLibrary(): Boolean =
+        preferences.getBoolean(
+            KEY_PERMANENT_LIBRARY_INITIALIZED,
+            false
+        )
+
     fun restorePermanentLibrary(
+        categoryRepository: CategoryRepository,
         stationRepository: StationRepository,
         membershipRepository: MembershipRepository
     ) {
+        if (!hasPermanentLibrary()) return
+
+        categoryRepository.clear()
+        stationRepository.clear()
+        membershipRepository.clear()
+
+        val categoryJson =
+            preferences.getString(
+                KEY_PERMANENT_CATEGORIES_JSON,
+                "[]"
+            ).orEmpty()
+
+        runCatching {
+            val array = JSONArray(categoryJson)
+
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+
+                categoryRepository.add(
+                    Category(
+                        id = item.getLong("id"),
+                        name = item.optString("name"),
+                        type =
+                            runCatching {
+                                CategoryType.valueOf(
+                                    item.optString(
+                                        "type",
+                                        CategoryType.STANDARD.name
+                                    )
+                                )
+                            }.getOrDefault(CategoryType.STANDARD),
+                        includedInNavigation =
+                            item.optBoolean(
+                                "includedInNavigation",
+                                true
+                            ),
+                        sortOrder =
+                            item.optInt("sortOrder", index),
+                        lastRefresh =
+                            item.optLong("lastRefresh", 0L)
+                    )
+                )
+            }
+        }
+
         val stationJson =
             preferences.getString(
                 KEY_PERMANENT_STATIONS_JSON,
-                null
-            )
+                "[]"
+            ).orEmpty()
 
-        if (!stationJson.isNullOrBlank()) {
-            runCatching {
-                val array = JSONArray(stationJson)
+        runCatching {
+            val array = JSONArray(stationJson)
 
-                for (index in 0 until array.length()) {
-                    val item = array.getJSONObject(index)
-                    val stationId = item.getLong("id")
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
 
-                    if (stationRepository.getById(stationId) == null) {
-                        stationRepository.add(
-                            Station(
-                                id = stationId,
-                                name = item.optString("name"),
-                                streamUrl = item.optString("streamUrl"),
-                                genre = item.optString("genre"),
-                                callLetters = item.optString("callLetters"),
-                                city = item.optString("city"),
-                                country = item.optString("country"),
-                                logoUrl = item.optString("logoUrl"),
-                                sourceType =
-                                    runCatching {
-                                        SourceType.valueOf(
-                                            item.optString(
-                                                "sourceType",
-                                                SourceType.STREAM.name
-                                            )
-                                        )
-                                    }.getOrDefault(SourceType.STREAM),
-                                includedInNavigation =
-                                    item.optBoolean(
-                                        "includedInNavigation",
-                                        true
-                                    ),
-                                failedThisSession = false,
-                                resolvedStreamUrl =
-                                    item.optString("resolvedStreamUrl"),
-                                streamVerified =
-                                    item.optBoolean(
-                                        "streamVerified",
-                                        false
-                                    ),
-                                lastVerified =
-                                    item.optLong(
-                                        "lastVerified",
-                                        0L
+                stationRepository.add(
+                    Station(
+                        id = item.getLong("id"),
+                        name = item.optString("name"),
+                        streamUrl = item.optString("streamUrl"),
+                        genre = item.optString("genre"),
+                        callLetters = item.optString("callLetters"),
+                        city = item.optString("city"),
+                        country = item.optString("country"),
+                        logoUrl = item.optString("logoUrl"),
+                        sourceType =
+                            runCatching {
+                                SourceType.valueOf(
+                                    item.optString(
+                                        "sourceType",
+                                        SourceType.STREAM.name
                                     )
-                            )
-                        )
-                    }
-                }
+                                )
+                            }.getOrDefault(SourceType.STREAM),
+                        includedInNavigation =
+                            item.optBoolean(
+                                "includedInNavigation",
+                                true
+                            ),
+                        failedThisSession = false,
+                        resolvedStreamUrl =
+                            item.optString("resolvedStreamUrl"),
+                        streamVerified =
+                            item.optBoolean(
+                                "streamVerified",
+                                false
+                            ),
+                        lastVerified =
+                            item.optLong("lastVerified", 0L)
+                    )
+                )
             }
         }
 
         val membershipJson =
             preferences.getString(
                 KEY_PERMANENT_MEMBERSHIPS_JSON,
-                null
-            )
+                "[]"
+            ).orEmpty()
 
-        if (!membershipJson.isNullOrBlank()) {
-            runCatching {
-                val array = JSONArray(membershipJson)
+        runCatching {
+            val array = JSONArray(membershipJson)
 
-                for (index in 0 until array.length()) {
-                    val item = array.getJSONObject(index)
-                    val categoryId = item.getLong("categoryId")
-                    val stationId = item.getLong("stationId")
-                    val position = item.optInt("position", index)
+            for (index in 0 until array.length()) {
+                val item = array.getJSONObject(index)
+                val categoryId = item.getLong("categoryId")
+                val stationId = item.getLong("stationId")
+                val position = item.optInt("position", index)
 
-                    if (stationRepository.getById(stationId) != null) {
-                        if (
-                            !membershipRepository.contains(
-                                categoryId = categoryId,
-                                stationId = stationId
-                            )
-                        ) {
-                            membershipRepository.addStationToCategory(
-                                categoryId = categoryId,
-                                stationId = stationId
-                            )
-                        }
+                if (
+                    categoryRepository.getById(categoryId) != null &&
+                    stationRepository.getById(stationId) != null
+                ) {
+                    membershipRepository.addStationToCategory(
+                        categoryId = categoryId,
+                        stationId = stationId
+                    )
 
-                        membershipRepository.moveStation(
-                            categoryId = categoryId,
-                            stationId = stationId,
-                            newPosition = position
-                        )
-                    }
+                    membershipRepository.moveStation(
+                        categoryId = categoryId,
+                        stationId = stationId,
+                        newPosition = position
+                    )
                 }
             }
         }
+
+        stationRepository.clearAllFailedFlags()
     }
 
     fun savePermanentLibrary(
+        categoryRepository: CategoryRepository,
         stationRepository: StationRepository,
         membershipRepository: MembershipRepository
     ) {
-        val permanentStations =
-            stationRepository.getAll().filter { station ->
-                station.id > LAST_SEED_STATION_ID
-            }
+        val categoryArray = JSONArray()
+
+        categoryRepository.getAll().forEach { category ->
+            categoryArray.put(
+                JSONObject()
+                    .put("id", category.id)
+                    .put("name", category.name)
+                    .put("type", category.type.name)
+                    .put(
+                        "includedInNavigation",
+                        category.includedInNavigation
+                    )
+                    .put("sortOrder", category.sortOrder)
+                    .put("lastRefresh", category.lastRefresh)
+            )
+        }
 
         val stationArray = JSONArray()
 
-        permanentStations.forEach { station ->
+        stationRepository.getAll().forEach { station ->
             stationArray.put(
                 JSONObject()
                     .put("id", station.id)
@@ -277,10 +333,7 @@ class AppPreferences(
                         "streamVerified",
                         station.streamVerified
                     )
-                    .put(
-                        "lastVerified",
-                        station.lastVerified
-                    )
+                    .put("lastVerified", station.lastVerified)
             )
         }
 
@@ -303,6 +356,14 @@ class AppPreferences(
             }
 
         preferences.edit()
+            .putBoolean(
+                KEY_PERMANENT_LIBRARY_INITIALIZED,
+                true
+            )
+            .putString(
+                KEY_PERMANENT_CATEGORIES_JSON,
+                categoryArray.toString()
+            )
             .putString(
                 KEY_PERMANENT_STATIONS_JSON,
                 stationArray.toString()
@@ -613,13 +674,18 @@ class AppPreferences(
         private const val KEY_SEARCH_CATEGORIES_JSON =
             "search_categories_json"
 
+        private const val KEY_PERMANENT_LIBRARY_INITIALIZED =
+            "permanent_library_initialized"
+
+        private const val KEY_PERMANENT_CATEGORIES_JSON =
+            "permanent_categories_json"
+
         private const val KEY_PERMANENT_STATIONS_JSON =
             "permanent_stations_json"
 
         private const val KEY_PERMANENT_MEMBERSHIPS_JSON =
             "permanent_memberships_json"
 
-        private const val LAST_SEED_STATION_ID = 6L
 
         // Legacy single-search keys retained only for migration.
         private const val KEY_SEARCH_QUERY =

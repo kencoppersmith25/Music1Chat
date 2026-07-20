@@ -193,7 +193,7 @@ fun GenreSearchBox(
                 .width(menuWidth)
                 .heightIn(max = 600.dp),
             properties = PopupProperties(
-                focusable = true,
+                focusable = false,
                 dismissOnBackPress = true,
                 dismissOnClickOutside = true
             )
