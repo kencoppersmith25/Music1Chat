@@ -18,6 +18,40 @@ import org.json.JSONObject
 class AppPreferences(
     context: Context
 ) {
+    fun loadSearchResultLimit(): Int {
+        val savedLimit =
+            preferences.getInt(
+                KEY_SEARCH_RESULT_LIMIT,
+                DEFAULT_SEARCH_RESULT_LIMIT
+            )
+
+        return normalizeSearchResultLimit(savedLimit)
+    }
+
+    fun saveSearchResultLimit(
+        limit: Int
+    ) {
+        preferences.edit()
+            .putInt(
+                KEY_SEARCH_RESULT_LIMIT,
+                normalizeSearchResultLimit(limit)
+            )
+            .apply()
+    }
+
+    private fun normalizeSearchResultLimit(
+        limit: Int
+    ): Int {
+        val roundedLimit =
+            ((limit + 2) / SEARCH_RESULT_LIMIT_STEP) *
+                    SEARCH_RESULT_LIMIT_STEP
+
+        return roundedLimit.coerceIn(
+            MINIMUM_SEARCH_RESULT_LIMIT,
+            MAXIMUM_SEARCH_RESULT_LIMIT
+        )
+    }
+
     private val preferences =
         context.getSharedPreferences(
             PREFERENCES_NAME,
@@ -643,6 +677,29 @@ class AppPreferences(
             .apply()
     }
 
+    fun getSearchResultLimit(): Int =
+        preferences.getInt(
+            KEY_SEARCH_RESULT_LIMIT,
+            DEFAULT_SEARCH_RESULT_LIMIT
+        ).coerceIn(
+            MIN_SEARCH_RESULT_LIMIT,
+            MAX_SEARCH_RESULT_LIMIT
+        )
+
+    fun setSearchResultLimit(
+        limit: Int
+    ) {
+        preferences.edit()
+            .putInt(
+                KEY_SEARCH_RESULT_LIMIT,
+                limit.coerceIn(
+                    MIN_SEARCH_RESULT_LIMIT,
+                    MAX_SEARCH_RESULT_LIMIT
+                )
+            )
+            .apply()
+    }
+
     private fun clearLegacySearchKeys() {
         preferences.edit()
             .remove(KEY_SEARCH_QUERY)
@@ -662,6 +719,13 @@ class AppPreferences(
         private const val PREFERENCES_NAME =
             "music1chat_preferences"
 
+        private const val KEY_SEARCH_RESULT_LIMIT =
+            "search_result_limit"
+
+        private const val DEFAULT_SEARCH_RESULT_LIMIT = 10
+        private const val MINIMUM_SEARCH_RESULT_LIMIT = 5
+        private const val MAXIMUM_SEARCH_RESULT_LIMIT = 100
+        private const val SEARCH_RESULT_LIMIT_STEP = 5
         private const val KEY_CATEGORY_ID =
             "current_category_id"
 
@@ -674,6 +738,8 @@ class AppPreferences(
         private const val KEY_SEARCH_CATEGORIES_JSON =
             "search_categories_json"
 
+        const val MIN_SEARCH_RESULT_LIMIT = 5
+        const val MAX_SEARCH_RESULT_LIMIT = 100
         private const val KEY_PERMANENT_LIBRARY_INITIALIZED =
             "permanent_library_initialized"
 

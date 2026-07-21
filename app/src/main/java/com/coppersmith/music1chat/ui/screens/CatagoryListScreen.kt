@@ -1,8 +1,8 @@
 package com.coppersmith.music1chat.ui.screens
 
 // Music1Chat coordinated release
-// Date: 2026-07-18
-// Release: 2026-07-18 v02
+// Date: 2026-07-20
+// Release: 2026-07-20 v05
 // DROP-IN REPLACEMENT
 //
 // Changes:
@@ -13,6 +13,10 @@ package com.coppersmith.music1chat.ui.screens
 // - Automatically scrolls near the currently selected category.
 // - Highlights the currently selected category.
 // - Preserves category selection, station-list, delete, and navigation actions.
+// - Gives category names the full card width and moves actions to the lower row.
+// - Shows an explicit instruction when no categories exist.
+// - Uses correct singular/plural wording for station counts.
+// - Keeps category names on one line so they do not wrap into the action icons.
 //
 // Matched files: MainScreen, CategoryListScreen, StationListScreen
 
@@ -47,11 +51,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.coppersmith.music1chat.ui.components.NavigationIndicator
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.MarqueeDefaults
 
 data class CategorySummary(
     val key: String,
@@ -133,141 +140,149 @@ fun CategoryListScreen(
                     modifier = Modifier.height(12.dp)
                 )
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement =
-                        Arrangement.spacedBy(10.dp)
-                ) {
-                    items(
-                        items = categories,
-                        key = { category ->
-                            category.key
-                        }
-                    ) { category ->
-                        val selected =
-                            category.key ==
-                                    selectedCategoryKey
+                if (categories.isEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text =
+                                "No categories – Do a search to add a category and stations.",
+                            color =
+                                MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 17.sp,
+                            lineHeight = 24.sp
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(
+                            items = categories,
+                            key = { category ->
+                                category.key
+                            }
+                        ) { category ->
+                            val selected =
+                                category.key ==
+                                        selectedCategoryKey
 
-                        OutlinedCard(
-                            modifier =
-                                Modifier.fillMaxWidth(),
-                            shape =
-                                RoundedCornerShape(17.dp),
-                            colors =
-                                CardDefaults
-                                    .outlinedCardColors(
-                                        containerColor =
-                                            if (selected) {
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
-                                            } else {
-                                                MaterialTheme.colorScheme.surface
-                                            }
-                                    )
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        start = 17.dp,
-                                        end = 7.dp,
-                                        top = 12.dp,
-                                        bottom = 12.dp
-                                    ),
-                                verticalAlignment =
-                                    Alignment.CenterVertically
+                            OutlinedCard(
+                                modifier =
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            onCategoryClick(category)
+                                        },
+                                shape =
+                                    RoundedCornerShape(17.dp),
+                                colors =
+                                    CardDefaults
+                                        .outlinedCardColors(
+                                            containerColor =
+                                                if (selected) {
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)
+                                                } else {
+                                                    MaterialTheme.colorScheme.surface
+                                                }
+                                        )
                             ) {
                                 Column(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .clickable {
-                                            onCategoryClick(
-                                                category
-                                            )
-                                        }
+                                        .fillMaxWidth()
+                                        .padding(
+                                            start = 17.dp,
+                                            end = 7.dp,
+                                            top = 12.dp,
+                                            bottom = 8.dp
+                                        )
                                 ) {
                                     Text(
-                                        text = category.name,
+                                        text = "${category.name} (${category.stationCount})",
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .basicMarquee(
+                                                iterations = Int.MAX_VALUE,
+                                                velocity = MarqueeDefaults.Velocity * 1.5f
+                                            ),
                                         fontSize = 20.sp,
-                                        fontWeight =
-                                            FontWeight.SemiBold,
-                                        maxLines = 1
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Clip
                                     )
 
                                     Spacer(
-                                        modifier =
-                                            Modifier.height(3.dp)
+                                        modifier = Modifier.height(2.dp)
                                     )
 
-                                    Text(
-                                        text =
-                                            "${category.stationCount} stations",
-                                        color =
-                                            MaterialTheme
-                                                .colorScheme
-                                                .onSurfaceVariant,
-                                        fontSize = 14.sp
-                                    )
-                                }
-
-                                Row(
-                                    modifier =
-                                        Modifier.width(138.dp),
-                                    horizontalArrangement =
-                                        Arrangement.End,
-                                    verticalAlignment =
-                                        Alignment.CenterVertically
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            onListClick(
-                                                category.key
-                                            )
-                                        },
-                                        modifier =
-                                            Modifier.size(46.dp)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End,
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(
-                                            imageVector =
-                                                Icons.Default
-                                                    .FormatListBulleted,
-                                            contentDescription =
-                                                "Open station list"
-                                        )
-                                    }
+                                        Row(
+                                            horizontalArrangement = Arrangement.End,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    onListClick(
+                                                        category.key
+                                                    )
+                                                },
+                                                modifier =
+                                                    Modifier.size(40.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector =
+                                                        Icons.Default
+                                                            .FormatListBulleted,
+                                                    contentDescription =
+                                                        "Open station list"
+                                                )
+                                            }
 
-                                    IconButton(
-                                        onClick = {
-                                            onDeleteClick(
-                                                category.key
-                                            )
-                                        },
-                                        modifier =
-                                            Modifier.size(46.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector =
-                                                Icons.Default.Delete,
-                                            contentDescription =
-                                                "Delete category"
-                                        )
-                                    }
+                                            IconButton(
+                                                onClick = {
+                                                    onDeleteClick(
+                                                        category.key
+                                                    )
+                                                },
+                                                modifier =
+                                                    Modifier.size(40.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector =
+                                                        Icons.Default.Delete,
+                                                    contentDescription =
+                                                        "Delete category"
+                                                )
+                                            }
 
-                                    NavigationIndicator(
-                                        included =
-                                            category
-                                                .includedInNavigation,
-                                        onClick = {
-                                            onNavigationToggle(
-                                                category.key
+                                            NavigationIndicator(
+                                                included =
+                                                    category
+                                                        .includedInNavigation,
+                                                onClick = {
+                                                    onNavigationToggle(
+                                                        category.key
+                                                    )
+                                                },
+                                                modifier = Modifier
+                                                    .width(38.dp)
+                                                    .height(32.dp)
                                             )
-                                        },
-                                        modifier = Modifier
-                                            .width(42.dp)
-                                            .height(34.dp)
-                                    )
+                                        }
+                                    }
                                 }
                             }
                         }

@@ -224,7 +224,9 @@ fun GenreSearchBox(
 }
 
 @Composable
-fun TopControlBar() {
+fun TopControlBar(
+    onSettingsClick: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment =
@@ -238,10 +240,12 @@ fun TopControlBar() {
             fontWeight = FontWeight.Bold
         )
 
-        IconButton(onClick = {}) {
+        IconButton(
+            onClick = onSettingsClick
+        ) {
             Icon(
-                imageVector = Icons.Default.Bluetooth,
-                contentDescription = "Bluetooth",
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Settings",
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(30.dp)
             )

@@ -2,9 +2,9 @@ package com.coppersmith.music1chat.ui.components
 
 // Music1Chat coordinated release
 // File: PlayerCards.kt
-// Release: 2026-07-19 v04
+// Release: 2026-07-21 v01
 // DROP-IN REPLACEMENT
-// Change: prioritizes song/artist metadata and falls back cleanly to station name when metadata is unavailable.
+// Change: adds a continuous single-line marquee for long category names.
 
 
 import com.coppersmith.music1chat.ui.components.NavigationIndicator
@@ -129,7 +129,11 @@ fun CategoryCard(
                 modifier = Modifier
                     .weight(1f)
                     .clickable(onClick = onCategoryClick)
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 8.dp)
+                    .basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        velocity = MarqueeDefaults.Velocity * 1.35f
+                    ),
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 21.sp,
                 fontWeight = FontWeight.SemiBold,

@@ -1,21 +1,15 @@
 package com.coppersmith.music1chat.ui.screens
 
-// Music1Chat revision: 2026-07-19 v04 — Ride Diagnostics
+// Music1Chat revision: 2026-07-21 v01 — Search Feedback and Search Title Stability
 // Replace the existing MainScreen.kt with this file, then rename it MainScreen.kt.
 // Changes:
-// - Deleting the active category selects the next category.
-// - Playback continues when the deleted category was playing.
+// - Deleting the active category selects the next category.name = "Search: ${search.query}",
+// - Playback continues when the deleted category was playing.name = "Search: ${search.query}",
 // - Saved-search categories count when choosing the replacement category.
 // - The category card does nothing when the library is truly empty.
 // - Deleting the final category exits the category list and clears the session.
 // - Empty-library guidance directs the user to Search.
 // - Adds Start/Stop/Share Ride Log controls and field diagnostics.
-
-import android.util.Log
-
-
-
-
 
 
 // Music1Chat coordinated release
@@ -27,6 +21,7 @@ import android.util.Log
 // PLAYBACK SESSION INTEGRATION V2
 // Search results participate as a temporary category in category navigation.
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -150,7 +145,35 @@ fun MainScreen() {
     }
 
     val initialSavedSearchCategories = remember {
+        val loadedSearchCategories =
+            appPreferences.loadSearchCategories()
+
+        /*
+         * Remove malformed search records left by an older build.
+         * Otherwise they appear in the category list as "Search:".
+         */
+        loadedSearchCategories
+            .filter { savedSearch ->
+                savedSearch.query.isBlank()
+            }
+            .forEach { malformedSearch ->
+                appPreferences.removeSearchCategory(
+                    malformedSearch.query
+                )
+            }
+
         appPreferences.loadSearchCategories()
+            .filter { savedSearch ->
+                savedSearch.query.isNotBlank()
+            }
+            .map { savedSearch ->
+                savedSearch.copy(
+                    query = savedSearch.query.trim()
+                )
+            }
+            .distinctBy { savedSearch ->
+                savedSearch.query.lowercase()
+            }
     }
 
     val initiallyCurrentSearch =
@@ -265,6 +288,10 @@ fun MainScreen() {
         mutableStateOf<String?>(null)
     }
 
+    var searchFeedbackMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
     var startupRestoreComplete by remember {
         mutableStateOf(false)
     }
@@ -279,6 +306,16 @@ fun MainScreen() {
 
     var stationStateVersion by remember {
         mutableIntStateOf(0)
+    }
+
+    var showSettings by remember {
+        mutableStateOf(false)
+    }
+
+    var searchResultLimit by remember {
+        mutableIntStateOf(
+            appPreferences.loadSearchResultLimit()
+        )
     }
 
     var showCategoryList by remember {
@@ -367,6 +404,33 @@ fun MainScreen() {
             musicRepository.categories.getById(categoryId)
         }
 
+    val effectiveSearchQuery =
+        sessionState.categoryName
+            .trim()
+            .ifBlank { activeSearchQuery.orEmpty().trim() }
+
+    val effectiveCategoryStationCount =
+        if (sessionState.isSearch) {
+            displayedStationCount
+        } else {
+            currentPermanentCategory?.let { category ->
+                membershipRepository
+                    .getStationsForCategory(category.id)
+                    .size
+            } ?: displayedStationCount
+        }
+
+    val effectiveCategoryDisplayName =
+        if (sessionState.isSearch) {
+            if (effectiveSearchQuery.isBlank()) {
+                "Search ($effectiveCategoryStationCount)"
+            } else {
+                "Search: $effectiveSearchQuery ($effectiveCategoryStationCount)"
+            }
+        } else {
+            "${sessionState.categoryName} ($effectiveCategoryStationCount)"
+        }
+
     val searchSuggestions: List<String> = remember(
         searchText,
         genres,
@@ -428,7 +492,33 @@ fun MainScreen() {
     fun replaceSavedSearches(
         updated: List<SavedSearchCategory>
     ) {
-        savedSearchCategories = updated
+        /*
+         * Prevent malformed persisted records from re-entering
+         * Compose state after an AppPreferences operation.
+         */
+        updated
+            .filter { savedSearch ->
+                savedSearch.query.isBlank()
+            }
+            .forEach { malformedSearch ->
+                appPreferences.removeSearchCategory(
+                    malformedSearch.query
+                )
+            }
+
+        savedSearchCategories =
+            updated
+                .filter { savedSearch ->
+                    savedSearch.query.isNotBlank()
+                }
+                .map { savedSearch ->
+                    savedSearch.copy(
+                        query = savedSearch.query.trim()
+                    )
+                }
+                .distinctBy { savedSearch ->
+                    savedSearch.query.lowercase()
+                }
     }
 
     fun navigationKeys(): List<String> {
@@ -901,64 +991,68 @@ fun MainScreen() {
         val thisSearchRequest =
             latestSearchRequest
 
-        navigationStatusMessage =
-            "Searching for $searchQuery..."
+        searchFeedbackMessage =
+            "Searching for “$searchQuery”…"
 
         coroutineScope.launch {
             try {
+                val searchResultLimit =
+                    appPreferences.getSearchResultLimit()
+
                 val localResult =
                     stationSearchEngine.search(
-                    query = searchQuery,
-                    stations = repositoryStations
-                )
+                        query = searchQuery,
+                        stations = repositoryStations
+                    )
 
-            val liveResult =
-                runCatching {
-                    liveStationSearchEngine.search(
-                        query = searchQuery,
-                        limit = 50
-                    )
-                }.getOrElse {
-                    SearchResult(
-                        query = searchQuery,
-                        stations = emptyList()
-                    )
+                val liveResult =
+                    runCatching {
+                        liveStationSearchEngine.search(
+                            query = searchQuery,
+                            limit = searchResultLimit
+                        )
+                    }.getOrElse {
+                        SearchResult(
+                            query = searchQuery,
+                            stations = emptyList()
+                        )
+                    }
+
+                if (thisSearchRequest != latestSearchRequest) {
+                    return@launch
                 }
 
-            if (thisSearchRequest != latestSearchRequest) {
-                return@launch
-            }
+                Log.d(
+                    "KenCheck",
+                    "Search submitted='$searchQuery', " +
+                            "local=${localResult.stations.size}, " +
+                            "live=${liveResult.stations.size}"
+                )
 
-            Log.d(
-                "KenCheck",
-                "Search submitted='$searchQuery', " +
-                        "local=${localResult.stations.size}, " +
-                        "live=${liveResult.stations.size}"
-            )
+                val mergedStations =
+                    (localResult.stations + liveResult.stations)
+                        .onEach { station ->
+                            station.includedInNavigation = true
+                        }
+                        .distinctBy { station ->
+                            station.resolvedStreamUrl
+                                .ifBlank {
+                                    station.streamUrl
+                                }
+                                .trim()
+                                .lowercase()
+                                .ifBlank {
+                                    station.name
+                                        .trim()
+                                        .lowercase()
+                                }
+                        }
+                        .take(searchResultLimit)
 
-            val mergedStations =
-                (localResult.stations + liveResult.stations)
-                    .onEach { station ->
-                        station.includedInNavigation = true
-                    }
-                    .distinctBy { station ->
-                        station.resolvedStreamUrl
-                            .ifBlank {
-                                station.streamUrl
-                            }
-                            .trim()
-                            .lowercase()
-                            .ifBlank {
-                                station.name
-                                    .trim()
-                                    .lowercase()
-                            }
-                    }
-
-            Log.d(
-                "KenCheck",
-                "Search merged='$searchQuery', results=${mergedStations.size}"
-            )
+                Log.d(
+                    "KenCheck",
+                    "Search merged='$searchQuery', results=${mergedStations.size}"
+                )
 
                 val savedSearch =
                     savedSearchFor(searchQuery)
@@ -987,15 +1081,15 @@ fun MainScreen() {
                         publishSession(restoredState)
                         activeSearchQuery = searchQuery
 
-                        navigationStatusMessage =
+                        searchFeedbackMessage =
                             "Search refresh failed. Showing the previous results."
 
                         if (startPlayback) {
                             playCurrentSessionStation(restoredState)
                         }
                     } else {
-                        navigationStatusMessage =
-                            "No matching stations found. Try the search again."
+                        searchFeedbackMessage =
+                            "No stations found for “$searchQuery”."
                     }
 
                     return@launch
@@ -1055,6 +1149,7 @@ fun MainScreen() {
                 activeSearchQuery = searchQuery
 
                 appPreferences.saveWasPlaying(startPlayback)
+                searchFeedbackMessage = null
                 navigationStatusMessage = null
 
                 if (startPlayback) {
@@ -1148,20 +1243,30 @@ fun MainScreen() {
 
     fun categoryDisplayNameForKey(
         key: String
-    ): String =
-        if (key.startsWith("search:")) {
-            "Search: ${key.removePrefix("search:")}"
+    ): String {
+        val stationCount =
+            stationsForCategoryKey(key).size
+
+        return if (key.startsWith("search:")) {
+            val query =
+                key.removePrefix("search:")
+
+            "Search: $query ($stationCount)"
         } else {
             val categoryId =
                 key.removePrefix("category:")
                     .toLongOrNull()
 
-            categoryId?.let {
-                musicRepository.categories
-                    .getById(it)
-                    ?.name
-            }.orEmpty()
+            val categoryName =
+                categoryId?.let {
+                    musicRepository.categories
+                        .getById(it)
+                        ?.name
+                }.orEmpty()
+
+            "$categoryName ($stationCount)"
         }
+    }
 
     fun deleteCategory(
         key: String
@@ -1480,7 +1585,7 @@ fun MainScreen() {
                         stationListKey.startsWith("search:") &&
                         sessionState.isSearch &&
                         stationListKey.equals(
-                            "search:${sessionState.categoryName}",
+                            "search:$effectiveSearchQuery",
                             ignoreCase = true
                         )
                     ) {
@@ -1852,7 +1957,7 @@ fun MainScreen() {
                 categories = categoryRows,
                 selectedCategoryKey =
                     if (sessionState.isSearch) {
-                        "search:${sessionState.categoryName}"
+                        "search:$effectiveSearchQuery"
                     } else {
                         "category:${sessionState.categoryId}"
                     },
@@ -1962,7 +2067,27 @@ fun MainScreen() {
                 horizontalAlignment =
                     Alignment.CenterHorizontally
             ) {
-                TopControlBar()
+                TopControlBar(
+                    onSettingsClick = {
+                        showSettings = true
+                    }
+                )
+
+                if (showSettings) {
+                    SettingsScreen(
+                        searchResultLimit = searchResultLimit,
+                        onSearchResultLimitChanged = { newLimit ->
+                            searchResultLimit = newLimit
+
+                            appPreferences.saveSearchResultLimit(
+                                newLimit
+                            )
+                        },
+                        onDismiss = {
+                            showSettings = false
+                        }
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -2063,7 +2188,7 @@ fun MainScreen() {
                 )
                 SearchChips(
                     selectedSearch =
-                        sessionState.categoryName,
+                        effectiveSearchQuery,
                     onSearchSelected = { genre ->
                         runSearch(
                             query = genre,
@@ -2072,13 +2197,28 @@ fun MainScreen() {
                         )
                     }
                 )
+
+                searchFeedbackMessage?.let { message ->
+                    Spacer(
+                        modifier = Modifier.height(5.dp)
+                    )
+
+                    Text(
+                        text = message,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
                 Spacer(
                     modifier = Modifier.height(13.dp)
                 )
 
                 CategoryCard(
                     categoryName =
-                        sessionState.categoryDisplayName,
+                        effectiveCategoryDisplayName,
                     includedInNavigation =
                         currentPermanentCategory
                             ?.includedInNavigation
@@ -2134,7 +2274,7 @@ fun MainScreen() {
                     onListClick = {
                         val key =
                             if (sessionState.isSearch) {
-                                "search:${sessionState.categoryName}"
+                                "search:$effectiveSearchQuery"
                             } else {
                                 "category:${sessionState.categoryId}"
                             }
@@ -2144,7 +2284,7 @@ fun MainScreen() {
                     onDeleteClick = {
                         deleteCategoryKey =
                             if (sessionState.isSearch) {
-                                "search:${sessionState.categoryName}"
+                                "search:$effectiveSearchQuery"
                             } else {
                                 "category:${sessionState.categoryId}"
                             }
@@ -2450,6 +2590,5 @@ fun MainScreen() {
                 }
             )
         }
-
     }
 }
