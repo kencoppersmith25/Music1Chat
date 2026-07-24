@@ -11,14 +11,16 @@ object DevelopmentStationData {
             streamUrl = "http://kmno.streamguys1.com/live",
             genre = "Hawaiian",
             city = "Maui",
-            sourceType = SourceType.STREAM
+            sourceType = SourceType.STREAM,
+            logoUrl = "https://kmno.org/wp-content/uploads/2021/04/KMNO-Logo-1.png"
         ),
         Station(
             id = -2L,
             name = "99.1 JOY",
             streamUrl = "http://gateway.cdnstream1.com/2808_96.aac",
             genre = "Christian",
-            sourceType = SourceType.STREAM
+            sourceType = SourceType.STREAM,
+            logoUrl = "https://www.991joyfm.com/wp-content/themes/joyfm/images/logo.png"
         ),
         Station(
             id=-11L,
@@ -27,7 +29,8 @@ object DevelopmentStationData {
             genre="Jazz",
             city="Tacoma",
             country="USA",
-            sourceType=SourceType.STREAM
+            sourceType=SourceType.STREAM,
+            logoUrl = "https://www.jazz24.org/wp-content/uploads/2016/09/Jazz24-Logo-Horizontal-White.png"
         ),
         Station(
             id=-12L,

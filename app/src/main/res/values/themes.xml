@@ -1,5 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Music1Chat" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Music1Chat" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#FF000000</item>
+        <item name="android:colorBackground">#FF000000</item>
+        <item name="colorPrimary">@color/purple_500</item>
+        <item name="colorPrimaryDark">@color/purple_700</item>
+        <item name="colorAccent">@color/teal_200</item>
+        <item name="colorControlNormal">@color/white</item>
+    </style>
 </resources>

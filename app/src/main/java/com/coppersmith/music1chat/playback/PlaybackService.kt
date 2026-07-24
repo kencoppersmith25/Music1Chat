@@ -351,6 +351,8 @@ class PlaybackService : MediaSessionService() {
                         .buildUpon()
                         .setTitle(title)
                         .setArtist(artist)
+                        .setStation(existingMetadata.station ?: existingMetadata.title)
+                        .setArtworkUri(existingMetadata.artworkUri)
                         .build()
 
                 val updatedItem =
@@ -437,24 +439,33 @@ class PlaybackService : MediaSessionService() {
 
         mediaSession =
             MediaSession.Builder(this, exoPlayer)
+                .setId("Music1ChatSession")
                 .setCallback(mediaSessionCallback)
                 .build()
 
         try {
-            val castContext = CastContext.getSharedInstance(this)
-            castPlayer = CastPlayer(castContext)
-            castPlayer?.addListener(playerListener)
+            // Initialize Cast in the background to avoid blocking and potential early-init crashes
+            playbackScope.launch {
+                try {
+                    CastContext.getSharedInstance(applicationContext)
+                    castPlayer = CastPlayer.Builder(applicationContext).build()
+                    castPlayer?.addListener(playerListener)
 
-            castManager = CastManager(this) { session, isConnected ->
-                if (isConnected) {
-                    switchToPlayer(castPlayer!!)
-                } else {
-                    switchToPlayer(exoPlayer)
+                    castManager = CastManager(applicationContext) { _, isConnected ->
+                        if (isConnected) {
+                            switchToPlayer(castPlayer!!)
+                        } else {
+                            switchToPlayer(exoPlayer)
+                        }
+                    }
+                    castManager.register()
+                    Log.d("KenCheck", "Cast initialized successfully in Service")
+                } catch (e: Exception) {
+                    Log.e("KenCheck", "Cast initialization failed in background", e)
                 }
             }
-            castManager.register()
         } catch (e: Exception) {
-            Log.e("KenCheck", "Cast initialization failed", e)
+            Log.e("KenCheck", "Immediate Cast setup failed", e)
         }
 
         Log.d(
@@ -466,26 +477,43 @@ class PlaybackService : MediaSessionService() {
 
     private fun switchToPlayer(newPlayer: Player) {
         val oldPlayer = mediaSession?.player
-        if (oldPlayer == newPlayer) return
+        if (oldPlayer == null || oldPlayer == newPlayer) return
 
-        Log.d("KenCheck", "Switching player to ${if (newPlayer is CastPlayer) "Cast" else "ExoPlayer"}")
+        val isCasting = newPlayer is CastPlayer
+        Log.d("KenCheck", "Switching player to ${if (isCasting) "Cast" else "ExoPlayer"}")
 
-        val playWhenReady = oldPlayer?.playWhenReady ?: false
+        val playWhenReady = oldPlayer.playWhenReady
         val mediaItems = mutableListOf<MediaItem>()
-        for (i in 0 until (oldPlayer?.mediaItemCount ?: 0)) {
-            mediaItems.add(oldPlayer!!.getMediaItemAt(i))
+        for (i in 0 until oldPlayer.mediaItemCount) {
+            val item = oldPlayer.getMediaItemAt(i)
+            // Ensure the MediaItem has basic metadata for Cast to display
+            val metadata = item.mediaMetadata.buildUpon()
+                .setTitle(item.mediaMetadata.title ?: "Music1 Stream")
+                // Keep the artwork if it exists
+                .setArtworkUri(item.mediaMetadata.artworkUri)
+                .build()
+            
+            mediaItems.add(item.buildUpon().setMediaMetadata(metadata).build())
         }
-        val currentItemIndex = oldPlayer?.currentMediaItemIndex ?: 0
-        val currentPosition = oldPlayer?.currentPosition ?: 0
+        val currentItemIndex = oldPlayer.currentMediaItemIndex
+        val currentPosition = oldPlayer.currentPosition
 
-        oldPlayer?.stop()
-        oldPlayer?.clearMediaItems()
+        oldPlayer.stop()
+        oldPlayer.clearMediaItems()
 
         newPlayer.setMediaItems(mediaItems, currentItemIndex, currentPosition)
         newPlayer.playWhenReady = playWhenReady
         newPlayer.prepare()
 
         mediaSession?.player = newPlayer
+        
+        if (isCasting) {
+            // Give the TV a moment to settle before pushing play
+            playbackScope.launch {
+                delay(1000)
+                newPlayer.play()
+            }
+        }
     }
 
     override fun onGetSession(
@@ -511,8 +539,15 @@ class PlaybackService : MediaSessionService() {
             exoPlayer.clearMediaItems()
         }
         
-        castPlayer?.stop()
-        castPlayer?.clearMediaItems()
+        // Aggressively stop the Cast player and end the session
+        if (::castManager.isInitialized) {
+            castManager.stopCasting()
+        }
+
+        castPlayer?.let {
+            it.stop()
+            it.clearMediaItems()
+        }
 
         if (::appPreferences.isInitialized) {
             appPreferences.saveWasPlaying(false)

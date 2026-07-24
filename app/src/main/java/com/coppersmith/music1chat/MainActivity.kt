@@ -1,13 +1,12 @@
 package com.coppersmith.music1chat
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.appcompat.app.AppCompatActivity
 import com.coppersmith.music1chat.ui.screens.MainScreen
 import com.coppersmith.music1chat.ui.theme.Music1ChatTheme
-import androidx.compose.material3.Text
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

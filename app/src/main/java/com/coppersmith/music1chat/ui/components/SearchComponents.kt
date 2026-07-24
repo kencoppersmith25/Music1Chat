@@ -16,6 +16,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -244,7 +245,8 @@ fun TopControlBar(
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 27.sp,
-            fontWeight = FontWeight.Bold
+            fontWeight = FontWeight.Bold,
+            maxLines = 1
         )
 
         IconButton(
@@ -259,7 +261,7 @@ fun TopControlBar(
         }
 
         Music1CastButton(
-            modifier = Modifier.size(34.dp)
+            modifier = Modifier.size(40.dp)
         )
 
         IconButton(onClick = onPowerClick) {

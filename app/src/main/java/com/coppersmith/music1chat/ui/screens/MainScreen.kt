@@ -2425,10 +2425,6 @@ fun MainScreen() {
                     onSettingsClick = {
                         showSettings = true
                     },
-                    onCastClick = {
-                        // Leave empty until the real Cast button
-                        // is placed inside TopControlBar.
-                    },
                     onPowerClick = {
                         radioPlayer.stop()
                         appPreferences.saveWasPlaying(false)

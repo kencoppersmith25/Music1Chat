@@ -80,6 +80,14 @@ class CastManager(
         )
     }
 
+    fun stopCasting() {
+        try {
+            castContext.sessionManager.endCurrentSession(true)
+        } catch (e: Exception) {
+            Log.e("CastManager", "Error ending session", e)
+        }
+    }
+
     val currentSession: CastSession?
         get() = castContext.sessionManager.currentCastSession
 

@@ -11,6 +11,7 @@ package com.coppersmith.music1chat
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -351,8 +352,15 @@ class RadioPlayer(
 
         val mediaMetadata = MediaMetadata.Builder()
             .setTitle(station.name)
+            .setSubtitle(station.genre) // Add a subtitle for the TV
             .setGenre(station.genre)
             .setStation(station.name)
+            .setArtworkUri(
+                if (station.logoUrl.isNotBlank()) {
+                    Uri.parse(station.logoUrl)
+                } else null
+            )
+            .setIsPlayable(true)
             .build()
 
         val mediaItem = MediaItem.Builder()
