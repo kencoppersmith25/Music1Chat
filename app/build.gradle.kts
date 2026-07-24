@@ -59,23 +59,12 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-
-    implementation(
-        "androidx.compose.material:material-icons-extended"
-    )
-
-    implementation(
-        "androidx.media3:media3-exoplayer:1.10.1"
-    )
-
-    implementation(
-        "androidx.media3:media3-exoplayer-hls:1.10.1"
-    )
-
-    implementation(
-        "androidx.media3:media3-session:1.10.1"
-    )
-
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.media3:media3-exoplayer:1.10.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.10.1")
+    implementation("androidx.media3:media3-session:1.10.1")
+    implementation("androidx.media3:media3-cast:1.10.1")
+    implementation("androidx.mediarouter:mediarouter:1.8.1")
     testImplementation(libs.junit)
 
     androidTestImplementation(

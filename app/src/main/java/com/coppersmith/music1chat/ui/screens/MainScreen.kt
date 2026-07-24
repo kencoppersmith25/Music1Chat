@@ -1,7 +1,10 @@
 package com.coppersmith.music1chat.ui.screens
 
-// Music1Chat revision: 2026-07-21 v01 — Search Feedback and Search Title Stability
+// Music1Chat revision: 2026-07-24 v01 — Standard Google Cast Device Picker
 // Replace the existing MainScreen.kt with this file, then rename it MainScreen.kt.
+// Change: the existing Cast icon now opens the standard Google Cast device picker.
+// This checkpoint does not yet transfer playback to the selected device.
+// Power stops playback immediately.
 // Changes:
 // - Deleting the active category selects the next category.name = "Search: ${search.query}",
 // - Playback continues when the deleted category was playing.name = "Search: ${search.query}",
@@ -77,12 +80,23 @@ import com.coppersmith.music1chat.ui.components.TopControlBar
 import kotlinx.coroutines.launch
 import com.coppersmith.music1chat.playback.MediaButtonCommand
 import com.coppersmith.music1chat.playback.MediaButtonCommandBus
+import com.coppersmith.music1chat.cast.Music1CastButton
+
 
 @Composable
 fun MainScreen() {
 
     var pendingCategoryNavigationKey by remember {
         mutableStateOf<String?>(null)
+    }
+
+    /*
+     * Only one uncached search-category activation may run at a time.
+     * While one is running, retain the newest requested category direction
+     * instead of silently discarding the user's button press.
+     */
+    var queuedCategoryNavigationDirection by remember {
+        mutableStateOf<Int?>(null)
     }
 
     val context = LocalContext.current
@@ -330,6 +344,14 @@ fun MainScreen() {
         mutableStateOf<String?>(null)
     }
 
+    var stationPendingDelete by remember {
+        mutableStateOf<com.coppersmith.music1chat.models.Station?>(null)
+    }
+
+    var stationPendingDeleteCategoryId by remember {
+        mutableStateOf<Long?>(null)
+    }
+
     var stationToSaveElsewhere by remember {
         mutableStateOf<com.coppersmith.music1chat.models.Station?>(null)
     }
@@ -359,6 +381,11 @@ fun MainScreen() {
         mutableStateOf<Map<String, PlaybackSessionState>>(
             emptyMap()
         )
+    }
+
+// Searches currently being prepared invisibly for category navigation.
+    val searchPrefetchesInProgress = remember {
+        mutableSetOf<String>()
     }
 
     var savedSearchCategories by remember {
@@ -569,7 +596,7 @@ fun MainScreen() {
         sessionState = newState
         sessionStateRef.value = newState
 
-        if (newState.isSearch && newState.hasStations) {
+        if (newState.isSearch && newState.hasEligibleStations) {
             activeSearchQuery = newState.categoryName
             searchSessionStates =
                 searchSessionStates +
@@ -688,11 +715,12 @@ fun MainScreen() {
     }
 
     lateinit var runSearchAction:
-                (String, Boolean, Boolean) -> Unit
+                (String, Boolean, Boolean, (() -> Unit)?) -> Unit
 
     fun restoreSearch(
         query: String,
-        startPlayback: Boolean = true
+        startPlayback: Boolean = true,
+        onComplete: (() -> Unit)? = null
     ) {
         val cached =
             searchSessionStates[
@@ -703,7 +731,8 @@ fun MainScreen() {
             runSearchAction(
                 query,
                 startPlayback,
-                true
+                true,
+                onComplete
             )
             return
         }
@@ -728,6 +757,8 @@ fun MainScreen() {
         if (startPlayback) {
             playCurrentSessionStation(restoredState)
         }
+
+        onComplete?.invoke()
     }
 
     fun selectCategory(
@@ -765,34 +796,50 @@ fun MainScreen() {
         direction: Int
     ) {
         val beforeState = sessionStateRef.value
+
         RideLogger.log(
-            "CATEGORY_COMMAND direction=$direction beforeCategory='${beforeState.categoryDisplayName}' " +
+            "CATEGORY_COMMAND direction=$direction " +
+                    "beforeCategory='${beforeState.categoryDisplayName}' " +
                     "beforeStation='${beforeState.currentStation?.name.orEmpty()}'"
         )
 
-        val keys =
-            navigationKeys()
+        /*
+         * An uncached saved search is activated asynchronously.
+         * Do not advance through additional categories until it either
+         * becomes active or fails.
+         */
+        if (pendingCategoryNavigationKey != null) {
+            queuedCategoryNavigationDirection = direction
+
+            RideLogger.log(
+                "CATEGORY_COMMAND_QUEUED reason='activation pending' " +
+                        "direction=$direction " +
+                        "target='$pendingCategoryNavigationKey'"
+            )
+            return
+        }
+        val keys = navigationKeys()
 
         if (keys.isEmpty()) {
             radioPlayer.stop()
             publishSession(
                 sessionController.stop()
             )
+
             navigationStatusMessage =
                 "No playable categories are available."
+
             return
         }
 
-        val currentState =
-            sessionStateRef.value
+        val currentState = sessionStateRef.value
 
         val currentKey =
-            pendingCategoryNavigationKey
-                ?: if (currentState.isSearch) {
-                    "search:${currentState.categoryName}"
-                } else {
-                    "category:${currentState.categoryId}"
-                }
+            if (currentState.isSearch) {
+                "search:${currentState.categoryName}"
+            } else {
+                "category:${currentState.categoryId}"
+            }
 
         val currentIndex =
             keys.indexOfFirst {
@@ -805,75 +852,132 @@ fun MainScreen() {
         val selectedIndex =
             when {
                 currentIndex < 0 -> 0
+
                 direction < 0 && currentIndex <= 0 ->
                     keys.lastIndex
+
                 direction < 0 ->
                     currentIndex - 1
+
                 direction > 0 &&
                         currentIndex >= keys.lastIndex ->
                     0
+
                 else ->
                     currentIndex + 1
             }
 
-        val selectedKey =
-            keys[selectedIndex]
+        val selectedKey = keys[selectedIndex]
 
-        pendingCategoryNavigationKey = selectedKey
+        val selectedSearchQuery =
+            selectedKey
+                .takeIf {
+                    it.startsWith("search:")
+                }
+                ?.removePrefix("search:")
+
+        val selectedSearchCached =
+            selectedSearchQuery?.let { query ->
+                searchSessionStates[
+                    normalizedSearchKey(query)
+                ]?.hasStations == true
+            } ?: false
 
         RideLogger.log(
             "CATEGORY_TARGET currentKey='$currentKey' " +
                     "selectedKey='$selectedKey' " +
-                    "cached=${
-                        selectedKey.startsWith("search:") &&
-                                searchSessionStates.containsKey(
-                                    normalizedSearchKey(
-                                        selectedKey.removePrefix("search:")
-                                    )
-                                )
-                    }"
+                    "cached=$selectedSearchCached"
         )
 
-        if (selectedKey.startsWith("search:")) {
-            restoreSearch(
-                query =
-                    selectedKey.removePrefix(
-                        "search:"
-                    ),
-                startPlayback = true
-            )
-        } else {
-            val categoryId =
-                selectedKey.removePrefix(
-                    "category:"
-                ).toLongOrNull()
-            val category =
-                categoryId?.let {
-                    musicRepository.categories
-                        .getById(it)
+        fun finishNavigationAttempt() {
+            val afterState = sessionStateRef.value
+
+            val activatedKey =
+                if (afterState.isSearch) {
+                    "search:${afterState.categoryName}"
+                } else {
+                    "category:${afterState.categoryId}"
                 }
 
-            if (category != null) {
-                selectCategory(
-                    category = category,
-                    startPlayback = true
+            val succeeded =
+                activatedKey.equals(
+                    selectedKey,
+                    ignoreCase = true
+                )
+
+            pendingCategoryNavigationKey = null
+
+            val queuedDirection =
+                queuedCategoryNavigationDirection
+
+            queuedCategoryNavigationDirection = null
+
+            RideLogger.log(
+                "CATEGORY_RESULT success=$succeeded " +
+                        "requestedKey='$selectedKey' " +
+                        "activatedKey='$activatedKey' " +
+                        "afterCategory='${afterState.categoryDisplayName}' " +
+                        "afterStation='${afterState.currentStation?.name.orEmpty()}'"
+            )
+
+            if (!succeeded) {
+                navigationStatusMessage =
+                    "Unable to load the next category."
+            }
+
+            if (queuedDirection != null) {
+                RideLogger.log(
+                    "CATEGORY_COMMAND_DEQUEUED direction=$queuedDirection"
+                )
+
+                changeCategory(
+                    direction = queuedDirection
                 )
             }
         }
 
-        val afterState = sessionStateRef.value
-        RideLogger.log(
-            "CATEGORY_RESULT afterCategory='${afterState.categoryDisplayName}' " +
-                    "afterStation='${afterState.currentStation?.name.orEmpty()}'"
-        )
+        if (selectedSearchQuery != null) {
+            pendingCategoryNavigationKey = selectedKey
+
+            restoreSearch(
+                query = selectedSearchQuery,
+                startPlayback = true,
+                onComplete = {
+                    finishNavigationAttempt()
+                }
+            )
+
+            return
+        }
+
+        val categoryId =
+            selectedKey
+                .removePrefix("category:")
+                .toLongOrNull()
+
+        val category =
+            categoryId?.let {
+                musicRepository.categories.getById(it)
+            }
+
+        if (category != null) {
+            selectCategory(
+                category = category,
+                startPlayback = true
+            )
+        }
+
+        finishNavigationAttempt()
     }
 
     fun moveStation(
         direction: Int
     ) {
         val beforeState = sessionStateRef.value
+
         RideLogger.log(
-            "STATION_COMMAND direction=$direction category='${beforeState.categoryDisplayName}' " +
+            "STATION_COMMAND direction=$direction " +
+                    "category='${beforeState.categoryDisplayName}' " +
                     "before='${beforeState.currentStation?.name.orEmpty()}' " +
                     "count=${beforeState.stationCount}"
         )
@@ -888,6 +992,19 @@ fun MainScreen() {
                     startPlayback = true
                 )
             }
+
+        val stationChanged =
+            newState.currentStation?.id !=
+                    beforeState.currentStation?.id
+
+        if (!stationChanged) {
+            RideLogger.log(
+                "STATION_RESULT unchanged=true " +
+                        "category='${beforeState.categoryDisplayName}' " +
+                        "station='${beforeState.currentStation?.name.orEmpty()}'"
+            )
+            return
+        }
 
         publishSession(newState)
         navigationStatusMessage = null
@@ -932,7 +1049,7 @@ fun MainScreen() {
 
         publishSession(newState)
 
-        if (!newState.hasStations) {
+        if (!newState.hasEligibleStations) {
             navigationStatusMessage =
                 if (musicRepository.categories.getAll().isEmpty()) {
                     "No categories are available. Search to add a category and stations."
@@ -1161,11 +1278,158 @@ fun MainScreen() {
         }
     }
 
-    runSearchAction = { query, startPlayback, preserveAnchor ->
+    fun prefetchSearch(
+        query: String
+    ) {
+        val searchQuery = query.trim()
+
+        if (searchQuery.isBlank()) {
+            return
+        }
+
+        val normalizedKey =
+            normalizedSearchKey(searchQuery)
+
+        val alreadyCached =
+            searchSessionStates[
+                normalizedKey
+            ]?.hasStations == true
+
+        if (
+            alreadyCached ||
+            normalizedKey in searchPrefetchesInProgress
+        ) {
+            return
+        }
+
+        searchPrefetchesInProgress.add(
+            normalizedKey
+        )
+
+        RideLogger.log(
+            "SEARCH_PREFETCH_START query='$searchQuery'"
+        )
+
+        coroutineScope.launch {
+            try {
+                val searchResultLimit =
+                    appPreferences.getSearchResultLimit()
+
+                val localResult =
+                    stationSearchEngine.search(
+                        query = searchQuery,
+                        stations = repositoryStations
+                    )
+
+                val liveResult =
+                    runCatching {
+                        liveStationSearchEngine.search(
+                            query = searchQuery,
+                            limit = searchResultLimit
+                        )
+                    }.getOrElse {
+                        SearchResult(
+                            query = searchQuery,
+                            stations = emptyList()
+                        )
+                    }
+
+                val mergedStations =
+                    (localResult.stations + liveResult.stations)
+                        .onEach { station ->
+                            station.includedInNavigation = true
+                        }
+                        .distinctBy { station ->
+                            station.resolvedStreamUrl
+                                .ifBlank {
+                                    station.streamUrl
+                                }
+                                .trim()
+                                .lowercase()
+                                .ifBlank {
+                                    station.name
+                                        .trim()
+                                        .lowercase()
+                                }
+                        }
+                        .take(searchResultLimit)
+
+                if (mergedStations.isEmpty()) {
+                    RideLogger.log(
+                        "SEARCH_PREFETCH_EMPTY query='$searchQuery'"
+                    )
+                    return@launch
+                }
+
+                val savedSearch =
+                    savedSearchFor(searchQuery)
+
+                val preferredStationId =
+                    savedSearch?.currentStationId
+                        ?.takeIf { savedId ->
+                            mergedStations.any { station ->
+                                station.id == savedId
+                            }
+                        }
+                        ?: savedSearch?.currentIndex
+                            ?.let { savedIndex ->
+                                mergedStations
+                                    .getOrNull(savedIndex)
+                                    ?.id
+                            }
+
+                val preferredIndex =
+                    preferredStationId
+                        ?.let { stationId ->
+                            mergedStations.indexOfFirst {
+                                it.id == stationId
+                            }
+                        }
+                        ?.takeIf { index ->
+                            index >= 0
+                        }
+                        ?: 0
+
+                val prefetchedState =
+                    PlaybackSessionState(
+                        mode = PlaybackSessionMode.SEARCH,
+                        categoryId = null,
+                        categoryName = searchQuery,
+                        stations = mergedStations,
+                        currentIndex = preferredIndex,
+                        playbackRequested = false
+                    )
+
+                searchSessionStates =
+                    searchSessionStates +
+                            (
+                                    normalizedKey to
+                                            prefetchedState
+                                    )
+
+                RideLogger.log(
+                    "SEARCH_PREFETCH_READY " +
+                            "query='$searchQuery' " +
+                            "stations=${mergedStations.size}"
+                )
+            } finally {
+                searchPrefetchesInProgress.remove(
+                    normalizedKey
+                )
+            }
+        }
+    }
+
+    runSearchAction = { query,
+                        startPlayback,
+                        preserveAnchor,
+                        onComplete ->
+
         runSearch(
             query = query,
             startPlayback = startPlayback,
-            preserveAnchor = preserveAnchor
+            preserveAnchor = preserveAnchor,
+            onComplete = onComplete
         )
     }
 
@@ -1235,7 +1499,8 @@ fun MainScreen() {
                 runSearchAction(
                     query,
                     false,
-                    true
+                    true,
+                    null
                 )
             }
         }
@@ -1441,6 +1706,96 @@ fun MainScreen() {
         }
     }
 
+    fun deleteStationFromPermanentCategory(
+        station: com.coppersmith.music1chat.models.Station,
+        categoryId: Long
+    ) {
+        val currentState = sessionStateRef.value
+        val wasPlayingBeforeDelete = radioPlayer.isPlaying
+
+        val deletingCurrentStation =
+            !currentState.isSearch &&
+                    currentState.categoryId == categoryId &&
+                    currentState.currentStation?.id == station.id
+
+        val oldIndex = currentState.safeCurrentIndex
+
+        membershipRepository.removeStationFromCategory(
+            categoryId = categoryId,
+            stationId = station.id
+        )
+
+        appPreferences.savePermanentLibrary(
+            categoryRepository = musicRepository.categories,
+            stationRepository = musicRepository.stations,
+            membershipRepository = membershipRepository
+        )
+
+        val remainingStations =
+            membershipRepository.getStationsForCategory(categoryId)
+
+        if (
+            !currentState.isSearch &&
+            currentState.categoryId == categoryId
+        ) {
+            val category =
+                musicRepository.categories.getById(categoryId)
+
+            if (category != null) {
+                val preferredStation =
+                    if (deletingCurrentStation) {
+                        remainingStations.getOrNull(
+                            oldIndex.coerceAtMost(
+                                remainingStations.lastIndex.coerceAtLeast(0)
+                            )
+                        )
+                    } else {
+                        currentState.currentStation?.let { current ->
+                            remainingStations.firstOrNull {
+                                it.id == current.id
+                            }
+                        }
+                    }
+
+                val shouldContinuePlaying =
+                    wasPlayingBeforeDelete &&
+                            remainingStations.isNotEmpty()
+
+                val refreshedState =
+                    sessionController.showCategory(
+                        categoryId = categoryId,
+                        categoryName = category.name,
+                        stations = remainingStations,
+                        preferredStationId = preferredStation?.id,
+                        startPlayback = shouldContinuePlaying
+                    )
+
+                publishSession(refreshedState)
+
+                saveCurrentState(
+                    state = refreshedState,
+                    wasPlaying = shouldContinuePlaying
+                )
+
+                when {
+                    remainingStations.isEmpty() -> {
+                        radioPlayer.stop()
+                        navigationStatusMessage =
+                            "No stations remain in ${category.name}."
+                    }
+
+                    deletingCurrentStation && shouldContinuePlaying -> {
+                        playCurrentSessionStation(refreshedState)
+                    }
+                }
+            }
+        }
+
+        stationPendingDelete = null
+        stationPendingDeleteCategoryId = null
+        stationStateVersion++
+    }
+
     LaunchedEffect(Unit) {
         if (
             initiallyCurrentSearch != null &&
@@ -1529,7 +1884,7 @@ fun MainScreen() {
 
                 publishSession(newState)
 
-                if (newState.hasStations) {
+                if (newState.hasEligibleStations) {
                     if (!newState.isSearch) {
                         saveCurrentState(
                             state = newState,
@@ -2064,12 +2419,20 @@ fun MainScreen() {
                         top = 10.dp,
                         bottom = 12.dp
                     ),
-                horizontalAlignment =
-                    Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 TopControlBar(
                     onSettingsClick = {
                         showSettings = true
+                    },
+                    onCastClick = {
+                        // Leave empty until the real Cast button
+                        // is placed inside TopControlBar.
+                    },
+                    onPowerClick = {
+                        radioPlayer.stop()
+                        appPreferences.saveWasPlaying(false)
+                        navigationStatusMessage = "Playback stopped."
                     }
                 )
 
@@ -2078,10 +2441,7 @@ fun MainScreen() {
                         searchResultLimit = searchResultLimit,
                         onSearchResultLimitChanged = { newLimit ->
                             searchResultLimit = newLimit
-
-                            appPreferences.saveSearchResultLimit(
-                                newLimit
-                            )
+                            appPreferences.saveSearchResultLimit(newLimit)
                         },
                         onDismiss = {
                             showSettings = false
@@ -2369,6 +2729,18 @@ fun MainScreen() {
                                 displayedStation
                         },
                         onDeleteClick = {
+                            val categoryId =
+                                currentPermanentCategory?.id
+
+                            if (
+                                categoryId != null &&
+                                !sessionState.isSearch
+                            ) {
+                                stationPendingDelete =
+                                    displayedStation
+                                stationPendingDeleteCategoryId =
+                                    categoryId
+                            }
                         }
                     )
                 } else {
@@ -2378,6 +2750,7 @@ fun MainScreen() {
                                 !startupRestoreComplete -> ""
                                 !libraryHasCategories ->
                                     "No categories are available. Search to add a category and stations."
+
                                 else ->
                                     "No stations are available."
                             },
@@ -2443,6 +2816,7 @@ fun MainScreen() {
                 )
             }
         }
+
         val pendingSaveStation =
             stationToSaveElsewhere
 
@@ -2543,6 +2917,62 @@ fun MainScreen() {
                     destinationCategorySearchText = ""
                     destinationCategoryPickerTitle =
                         "Save to another category"
+                }
+            )
+        }
+
+        val pendingDeleteStation =
+            stationPendingDelete
+        val pendingDeleteStationCategoryId =
+            stationPendingDeleteCategoryId
+
+        if (
+            pendingDeleteStation != null &&
+            pendingDeleteStationCategoryId != null
+        ) {
+            val pendingDeleteCategoryName =
+                musicRepository.categories
+                    .getById(pendingDeleteStationCategoryId)
+                    ?.name
+                    .orEmpty()
+
+            AlertDialog(
+                onDismissRequest = {
+                    stationPendingDelete = null
+                    stationPendingDeleteCategoryId = null
+                },
+                title = {
+                    Text("Delete station?")
+                },
+                text = {
+                    Text(
+                        "Are you sure you want to delete " +
+                                "“${pendingDeleteStation.name}” from " +
+                                "“$pendingDeleteCategoryName”?"
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            deleteStationFromPermanentCategory(
+                                station = pendingDeleteStation,
+                                categoryId =
+                                    pendingDeleteStationCategoryId
+                            )
+                        }
+                    ) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            stationPendingDelete = null
+                            stationPendingDeleteCategoryId = null
+                        }
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             )
         }

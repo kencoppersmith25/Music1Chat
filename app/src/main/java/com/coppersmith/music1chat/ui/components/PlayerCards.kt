@@ -2,13 +2,11 @@ package com.coppersmith.music1chat.ui.components
 
 // Music1Chat coordinated release
 // File: PlayerCards.kt
-// Release: 2026-07-21 v01
+// Release: 2026-07-23 v03
 // DROP-IN REPLACEMENT
-// Change: adds a continuous single-line marquee for long category names.
+// Change: Search folder opens category picker directly; permanent folder shows only Save and Delete.
 
 
-import com.coppersmith.music1chat.ui.components.NavigationIndicator
-import com.coppersmith.music1chat.ui.components.MiniVuMeter
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -385,7 +383,11 @@ fun NowPlayingCard(
                     ) {
                         IconButton(
                             onClick = {
-                                showStationMenu = true
+                                if (categoryIsSearch) {
+                                    onSaveOrMoveClick()
+                                } else {
+                                    showStationMenu = true
+                                }
                             }
                         ) {
                             Icon(
@@ -405,33 +407,7 @@ fun NowPlayingCard(
                         ) {
                             DropdownMenuItem(
                                 text = {
-                                    Text(
-                                        text =
-                                            if (categoryIsSearch) {
-                                                "Save to category"
-                                            } else {
-                                                "Move to category"
-                                            },
-                                        color =
-                                            if (categoryIsSearch) {
-                                                Color.Unspecified
-                                            } else {
-                                                Color.Gray
-                                            }
-                                    )
-                                },
-                                enabled = categoryIsSearch,
-                                onClick = {
-                                    showStationMenu = false
-                                    onSaveOrMoveClick()
-                                }
-                            )
-
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "Save to another category"
-                                    )
+                                    Text("Save")
                                 },
                                 onClick = {
                                     showStationMenu = false
@@ -441,17 +417,8 @@ fun NowPlayingCard(
 
                             DropdownMenuItem(
                                 text = {
-                                    Text(
-                                        "Delete station",
-                                        color =
-                                            if (categoryIsSearch) {
-                                                Color.Gray
-                                            } else {
-                                                Color.Unspecified
-                                            }
-                                    )
+                                    Text("Delete station")
                                 },
-                                enabled = !categoryIsSearch,
                                 onClick = {
                                     showStationMenu = false
                                     onDeleteClick()

@@ -2,9 +2,12 @@ package com.coppersmith.music1chat.ui.components
 
 // Music1Chat coordinated release
 // File: the source file containing GenreSearchBox, TopControlBar, and SearchChips
-// Release: 2026-07-17 v02
+// Release: 2026-07-23 v03
 // DROP-IN REPLACEMENT
-// Change: genre menu is much taller, matches the search-box width, and remains searchable.
+// Changes:
+// - Replaces the duplicate Settings placeholder with the Cast icon.
+// - Adds Cast and Power callbacks to TopControlBar.
+// - Preserves the existing genre-search and search-chip behavior.
 
 
 import androidx.compose.animation.animateColorAsState
@@ -40,10 +43,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import com.coppersmith.music1chat.cast.Music1CastButton
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -225,7 +231,8 @@ fun GenreSearchBox(
 
 @Composable
 fun TopControlBar(
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onPowerClick: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -251,16 +258,11 @@ fun TopControlBar(
             )
         }
 
-        IconButton(onClick = {}) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Settings",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(30.dp)
-            )
-        }
+        Music1CastButton(
+            modifier = Modifier.size(34.dp)
+        )
 
-        IconButton(onClick = {}) {
+        IconButton(onClick = onPowerClick) {
             Icon(
                 imageVector =
                     Icons.Default.PowerSettingsNew,

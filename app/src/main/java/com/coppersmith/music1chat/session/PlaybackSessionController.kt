@@ -47,6 +47,13 @@ data class PlaybackSessionState(
 
     val hasStations: Boolean
         get() = stations.isNotEmpty()
+
+    val hasEligibleStations: Boolean
+        get() =
+            stations.any { station ->
+                station.includedInNavigation &&
+                        !station.failedThisSession
+            }
 }
 
 class PlaybackSessionController(

@@ -76,7 +76,8 @@ class RadioPlayer(
     private var activeRequest: PlaybackRequest? = null
 
     private var pendingRequest: PlaybackRequest? = null
-
+    private var playbackStartTime = 0L
+    private var playbackNavGeneration = 0L
     private var controller: MediaController? = null
 
     private val controllerFuture: ListenableFuture<MediaController>
@@ -209,7 +210,10 @@ class RadioPlayer(
         override fun onIsPlayingChanged(playing: Boolean) {
             val request = matchingActiveRequest() ?: run {
                 if (playing) {
-                    Log.d("KenCheck", "Ignoring stale isPlaying=true callback.")
+                    Log.d(
+                        "KenCheck",
+                        "Ignoring stale isPlaying=true callback."
+                    )
                 }
                 return
             }
@@ -217,6 +221,16 @@ class RadioPlayer(
             isPlaying = playing
 
             if (playing) {
+                if (request.generation == playbackNavGeneration) {
+                    val elapsed =
+                        System.currentTimeMillis() - playbackStartTime
+
+                    Log.d(
+                        "KenRide",
+                        "[${request.generation}] PLAYING ${request.station.name} in ${elapsed} ms"
+                    )
+                }
+
                 cancelStartupWatchdog()
                 errorMessage = null
                 request.station.failedThisSession = false
@@ -346,6 +360,14 @@ class RadioPlayer(
             .setUri(playbackUrl)
             .setMediaMetadata(mediaMetadata)
             .build()
+
+        playbackStartTime = System.currentTimeMillis()
+        playbackNavGeneration = request.generation
+
+        Log.d(
+            "KenRide",
+            "[${request.generation}] START ${station.name}"
+        )
 
         mediaController.stop()
         mediaController.clearMediaItems()

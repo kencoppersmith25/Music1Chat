@@ -32,6 +32,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.coppersmith.music1chat.models.Category
 
+// Music1Chat coordinated release
+// File: CategoryPicker.kt
+// Release: 2026-07-23 v03
+// DROP-IN REPLACEMENT
+// Change: displays existing category counts as parenthesized numbers.
+
 /**
  * Reusable category chooser for current-category selection, saving, and moving.
  * Existing library categories are listed first and include their station counts.
@@ -49,53 +55,74 @@ fun CategoryPicker(
     onCategorySelected: (categoryName: String, existingCategory: Category?) -> Unit,
     onDismiss: () -> Unit
 ) {
+    /*
+     * The picker is often opened with a useful proposed destination already
+     * in searchText, such as "Classical". That initial value should rank the
+     * matching category first, but it must not hide Hawaiian, 60s, 70s, etc.
+     * Once the user edits the field, normal filtering begins.
+     */
+    val initialSearchText = remember { searchText.trim() }
+
     val pickerItems = remember(
         searchText,
+        initialSearchText,
         categories,
         suggestedCategoryNames
     ) {
         val typedText = searchText.trim()
+        val isInitialText =
+            typedText.equals(initialSearchText, ignoreCase = true)
 
         val allCategoryNames =
             (categories.map { category -> category.name } +
                     suggestedCategoryNames)
+                .filter { name -> name.isNotBlank() }
                 .distinctBy { name ->
                     name.trim().lowercase()
                 }
 
         val matchingNames =
-            if (typedText.isBlank()) {
-                allCategoryNames
-            } else {
-                buildList {
-                    add(typedText)
-
-                    addAll(
-                        allCategoryNames.filter { name ->
-                            name.contains(
-                                typedText,
-                                ignoreCase = true
-                            )
+            when {
+                typedText.isBlank() || isInitialText -> {
+                    buildList {
+                        if (typedText.isNotBlank()) {
+                            add(typedText)
                         }
-                    )
-                }.distinctBy { name ->
-                    name.trim().lowercase()
+                        addAll(allCategoryNames)
+                    }
                 }
+
+                else -> {
+                    buildList {
+                        add(typedText)
+                        addAll(
+                            allCategoryNames.filter { name ->
+                                name.contains(
+                                    typedText,
+                                    ignoreCase = true
+                                )
+                            }
+                        )
+                    }
+                }
+            }.distinctBy { name ->
+                name.trim().lowercase()
             }
 
         matchingNames.sortedWith(
             compareByDescending<String> { name ->
+                typedText.isNotBlank() &&
+                        name.equals(
+                            typedText,
+                            ignoreCase = true
+                        )
+            }.thenByDescending { name ->
                 categories.any { category ->
                     category.name.equals(
                         name,
                         ignoreCase = true
                     )
                 }
-            }.thenByDescending { name ->
-                name.equals(
-                    typedText,
-                    ignoreCase = true
-                )
             }.thenBy { name ->
                 name.lowercase()
             }
@@ -216,12 +243,7 @@ fun CategoryPicker(
 
                                 if (stationCount != null) {
                                     Text(
-                                        text = "$stationCount " +
-                                                if (stationCount == 1) {
-                                                    "station"
-                                                } else {
-                                                    "stations"
-                                                },
+                                        text = "($stationCount)",
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontSize = 14.sp
                                     )
