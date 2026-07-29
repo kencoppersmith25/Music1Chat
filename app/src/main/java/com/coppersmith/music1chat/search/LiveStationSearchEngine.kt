@@ -243,8 +243,8 @@ class LiveStationSearchEngine(
             resolvedStreamUrl.trim()
 
         val playbackUrl =
-            originalUrl.ifBlank {
-                resolvedUrl
+            resolvedUrl.ifBlank {
+                originalUrl
             }
 
         return Station(
@@ -304,13 +304,27 @@ class LiveStationSearchEngine(
     private fun tokenize(
         value: String
     ): List<String> {
+        val genericStationWords =
+            setOf(
+                "radio",
+                "station",
+                "music",
+                "live",
+                "online",
+                "stream",
+                "fm",
+                "am",
+                "the"
+            )
+
         return normalize(value)
             .split(' ')
             .map { word ->
                 word.trim()
             }
             .filter { word ->
-                word.length >= 2
+                word.length >= 2 &&
+                        word !in genericStationWords
             }
             .distinct()
     }

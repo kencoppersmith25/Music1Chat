@@ -1,16 +1,5 @@
 package com.coppersmith.music1chat.ui.screens
 
-// Music1Chat coordinated release
-// Date: 2026-07-18
-// Release: 2026-07-18 v02
-// DROP-IN REPLACEMENT
-// Change:
-// - Converts StationListScreen from a full-page screen to a dismissible dialog.
-// - Removes the required X close button.
-// - Allows dismissal by tapping outside or pressing Android Back.
-// - Automatically scrolls to the currently selected station.
-// - Preserves selection highlighting, drag reordering, deletion, and navigation controls.
-// Matched files: MainScreen, StationListScreen, AppPreferences
 
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
@@ -49,8 +38,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -63,6 +54,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import com.coppersmith.music1chat.models.Station
 import com.coppersmith.music1chat.ui.components.NavigationIndicator
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Composable
@@ -103,8 +95,8 @@ fun StationListScreen(
      * naturally by LazyColumn.
      */
     LaunchedEffect(
-        selectedStationId,
-        orderedStations.map { station -> station.id }
+        categoryName,
+        selectedStationId
     ) {
         val selectedIndex =
             orderedStations.indexOfFirst { station ->
@@ -146,8 +138,52 @@ fun StationListScreen(
         mutableFloatStateOf(0f)
     }
 
+    var dragScrollY by remember {
+        mutableFloatStateOf(0f)
+    }
+
     var pendingDelete by remember {
         mutableStateOf<Station?>(null)
+    }
+
+    var pendingRevealStationId by remember {
+        mutableStateOf<Long?>(null)
+    }
+
+    var pendingRevealDestination by remember {
+        mutableIntStateOf(-1)
+    }
+
+    LaunchedEffect(
+        stateVersion,
+        stations.map { station -> station.id },
+        pendingRevealStationId,
+        pendingRevealDestination
+    ) {
+        val revealId = pendingRevealStationId
+        val revealDestination = pendingRevealDestination
+
+        if (revealId != null && revealDestination >= 0) {
+            val movedIndex =
+                orderedStations.indexOfFirst { station ->
+                    station.id == revealId
+                }
+
+            if (movedIndex == revealDestination) {
+                val revealStart =
+                    when {
+                        movedIndex >= orderedStations.lastIndex ->
+                            (movedIndex - 2).coerceAtLeast(0)
+
+                        else ->
+                            (movedIndex - 1).coerceAtLeast(0)
+                    }
+
+                listState.scrollToItem(revealStart)
+                pendingRevealStationId = null
+                pendingRevealDestination = -1
+            }
+        }
     }
 
     fun finishDrag(
@@ -165,6 +201,9 @@ fun StationListScreen(
             destination >= 0 &&
             destination != originalIndex
         ) {
+            pendingRevealStationId = station.id
+            pendingRevealDestination = destination
+
             onMoveStation(
                 station,
                 destination
@@ -176,6 +215,7 @@ fun StationListScreen(
         placeholderIndex = -1
         floatingStartY = 0f
         floatingDragY = 0f
+        dragScrollY = 0f
     }
 
     Dialog(
@@ -237,10 +277,150 @@ fun StationListScreen(
                     modifier = Modifier.height(12.dp)
                 )
 
+                val insertionLineColor =
+                    MaterialTheme.colorScheme.primary
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .pointerInput(
+                            reorderEnabled,
+                            stateVersion,
+                            categoryName
+                        ) {
+                            if (!reorderEnabled) {
+                                return@pointerInput
+                            }
+
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { offset: Offset ->
+                                    val visibleItem =
+                                        listState.layoutInfo
+                                            .visibleItemsInfo
+                                            .firstOrNull { item ->
+                                                offset.y >= item.offset &&
+                                                        offset.y <=
+                                                        item.offset + item.size
+                                            }
+
+                                    val stationId =
+                                        visibleItem?.key as? Long
+
+                                    val station =
+                                        stationId?.let { id ->
+                                            orderedStations
+                                                .firstOrNull { it.id == id }
+                                        }
+
+                                    if (
+                                        visibleItem != null &&
+                                        station != null
+                                    ) {
+                                        originalIndex =
+                                            orderedStations.indexOfFirst {
+                                                it.id == station.id
+                                            }
+                                        placeholderIndex = originalIndex
+                                        floatingStartY =
+                                            visibleItem.offset.toFloat()
+                                        floatingDragY = 0f
+                                        dragScrollY = 0f
+                                        draggedStation = station
+                                    }
+                                },
+                                onDragCancel = {
+                                    finishDrag(commit = false)
+                                },
+                                onDragEnd = {
+                                    finishDrag(commit = true)
+                                },
+                                onDrag = { change, dragAmount ->
+                                    if (draggedStation == null) {
+                                        return@detectDragGesturesAfterLongPress
+                                    }
+
+                                    change.consume()
+                                    floatingDragY += dragAmount.y
+
+                                    val layoutInfo = listState.layoutInfo
+                                    val floatingCenter =
+                                        floatingStartY +
+                                                floatingDragY +
+                                                rowStepPx / 2f
+                                    val edgeZonePx = rowStepPx * 0.85f
+
+                                    val requestedScroll =
+                                        when {
+                                            dragAmount.y < 0f &&
+                                                    floatingCenter <
+                                                    layoutInfo
+                                                        .viewportStartOffset +
+                                                    edgeZonePx ->
+                                                -rowStepPx * 0.22f
+
+                                            dragAmount.y > 0f &&
+                                                    floatingCenter >
+                                                    layoutInfo
+                                                        .viewportEndOffset -
+                                                    edgeZonePx ->
+                                                rowStepPx * 0.22f
+
+                                            else -> 0f
+                                        }
+
+                                    if (requestedScroll != 0f) {
+                                        listState.dispatchRawDelta(
+                                            requestedScroll
+                                        )
+                                    }
+
+                                    val refreshedLayout = listState.layoutInfo
+                                    val targetItem =
+                                        refreshedLayout.visibleItemsInfo
+                                            .minByOrNull { item ->
+                                                abs(
+                                                    floatingCenter -
+                                                            (item.offset +
+                                                                    item.size / 2f)
+                                                )
+                                            }
+
+                                    val destination =
+                                        when {
+                                            floatingCenter <=
+                                                    refreshedLayout
+                                                        .viewportStartOffset +
+                                                    rowStepPx / 2f -> 0
+
+                                            floatingCenter >=
+                                                    refreshedLayout
+                                                        .viewportEndOffset -
+                                                    rowStepPx / 2f ->
+                                                orderedStations.lastIndex
+
+                                            else ->
+                                                targetItem?.index
+                                                    ?: placeholderIndex
+                                        }
+                                            .coerceIn(
+                                                0,
+                                                orderedStations.lastIndex
+                                            )
+
+                                    if (destination != placeholderIndex) {
+                                        /*
+                                         * Do not mutate orderedStations while the finger is down.
+                                         * Moving keyed LazyColumn items during the gesture makes
+                                         * Compose preserve the moved key's visual position, which
+                                         * shifts the viewport and causes destination jumps.
+                                         * Commit the single final move in finishDrag().
+                                         */
+                                        placeholderIndex = destination
+                                    }
+                                }
+                            )
+                        }
                 ) {
                     LazyColumn(
                         state = listState,
@@ -258,118 +438,15 @@ fun StationListScreen(
                                 draggedStation?.id ==
                                         station.id
 
-                            val dragModifier =
-                                if (reorderEnabled) {
-                                    Modifier.pointerInput(
-                                        station.id,
-                                        orderedStations.size
-                                    ) {
-                                        detectDragGesturesAfterLongPress(
-                                            onDragStart = {
-                                                originalIndex =
-                                                    orderedStations
-                                                        .indexOfFirst {
-                                                            it.id ==
-                                                                    station.id
-                                                        }
+                            val showInsertionBefore =
+                                draggedStation != null &&
+                                        placeholderIndex < originalIndex &&
+                                        index == placeholderIndex
 
-                                                placeholderIndex =
-                                                    originalIndex
-
-                                                val visibleItem =
-                                                    listState
-                                                        .layoutInfo
-                                                        .visibleItemsInfo
-                                                        .firstOrNull {
-                                                            it.key ==
-                                                                    station.id
-                                                        }
-
-                                                floatingStartY =
-                                                    visibleItem
-                                                        ?.offset
-                                                        ?.toFloat()
-                                                        ?: 0f
-
-                                                floatingDragY =
-                                                    0f
-
-                                                draggedStation =
-                                                    station
-                                            },
-                                            onDragCancel = {
-                                                finishDrag(
-                                                    commit = false
-                                                )
-                                            },
-                                            onDragEnd = {
-                                                finishDrag(
-                                                    commit = true
-                                                )
-                                            },
-                                            onDrag = {
-                                                    change,
-                                                    dragAmount ->
-
-                                                change.consume()
-
-                                                floatingDragY +=
-                                                    dragAmount.y
-
-                                                val crossedRows =
-                                                    (
-                                                            floatingDragY /
-                                                                    rowStepPx
-                                                            )
-                                                        .roundToInt()
-
-                                                val destination =
-                                                    (
-                                                            originalIndex +
-                                                                    crossedRows
-                                                            )
-                                                        .coerceIn(
-                                                            minimumValue = 0,
-                                                            maximumValue =
-                                                                orderedStations
-                                                                    .lastIndex
-                                                        )
-
-                                                if (
-                                                    destination !=
-                                                    placeholderIndex
-                                                ) {
-                                                    val currentIndex =
-                                                        orderedStations
-                                                            .indexOfFirst {
-                                                                it.id ==
-                                                                        station.id
-                                                            }
-
-                                                    if (
-                                                        currentIndex >= 0
-                                                    ) {
-                                                        val moved =
-                                                            orderedStations
-                                                                .removeAt(
-                                                                    currentIndex
-                                                                )
-
-                                                        orderedStations.add(
-                                                            destination,
-                                                            moved
-                                                        )
-
-                                                        placeholderIndex =
-                                                            destination
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                } else {
-                                    Modifier
-                                }
+                            val showInsertionAfter =
+                                draggedStation != null &&
+                                        placeholderIndex > originalIndex &&
+                                        index == placeholderIndex
 
                             StationListRow(
                                 station = station,
@@ -381,7 +458,46 @@ fun StationListScreen(
                                 dimmed = isDragged,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .then(dragModifier),
+                                    .drawWithContent {
+                                        drawContent()
+
+                                        val strokeWidth =
+                                            4.dp.toPx()
+                                        val horizontalInset =
+                                            10.dp.toPx()
+
+                                        if (showInsertionBefore) {
+                                            drawLine(
+                                                color = insertionLineColor,
+                                                start = Offset(
+                                                    horizontalInset,
+                                                    strokeWidth / 2f
+                                                ),
+                                                end = Offset(
+                                                    size.width - horizontalInset,
+                                                    strokeWidth / 2f
+                                                ),
+                                                strokeWidth = strokeWidth
+                                            )
+                                        }
+
+                                        if (showInsertionAfter) {
+                                            drawLine(
+                                                color = insertionLineColor,
+                                                start = Offset(
+                                                    horizontalInset,
+                                                    size.height -
+                                                            strokeWidth / 2f
+                                                ),
+                                                end = Offset(
+                                                    size.width - horizontalInset,
+                                                    size.height -
+                                                            strokeWidth / 2f
+                                                ),
+                                                strokeWidth = strokeWidth
+                                            )
+                                        }
+                                    },
                                 onStationClick = {
                                     onStationClick(station)
                                 },
@@ -421,7 +537,19 @@ fun StationListScreen(
                                             (
                                                     floatingStartY +
                                                             floatingDragY
-                                                    ).roundToInt()
+                                                    )
+                                                .coerceIn(
+                                                    listState.layoutInfo
+                                                        .viewportStartOffset
+                                                        .toFloat(),
+                                                    (
+                                                            listState.layoutInfo
+                                                                .viewportEndOffset -
+                                                                    rowStepPx
+                                                            )
+                                                        .coerceAtLeast(0f)
+                                                )
+                                                .roundToInt()
                                     )
                                 }
                                 .padding(end = 12.dp)

@@ -18,6 +18,62 @@ import org.json.JSONObject
 class AppPreferences(
     context: Context
 ) {
+    fun loadAnnounceCategoryChanges(): Boolean =
+        preferences.getBoolean(
+            KEY_ANNOUNCE_CATEGORY_CHANGES,
+            false
+        )
+
+    fun saveAnnounceCategoryChanges(
+        enabled: Boolean
+    ) {
+        preferences.edit()
+            .putBoolean(
+                KEY_ANNOUNCE_CATEGORY_CHANGES,
+                enabled
+            )
+            .apply()
+    }
+
+    fun loadCategoryAnnouncementVoiceId(): String? =
+        preferences
+            .getString(
+                KEY_CATEGORY_ANNOUNCEMENT_VOICE_ID,
+                null
+            )
+            ?.trim()
+            ?.takeIf { voiceId ->
+                voiceId.isNotEmpty()
+            }
+
+    /**
+     * Pass null to use the phone's default voice.
+     */
+    fun saveCategoryAnnouncementVoiceId(
+        voiceId: String?
+    ) {
+        val cleanedVoiceId =
+            voiceId
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+
+        val editor =
+            preferences.edit()
+
+        if (cleanedVoiceId == null) {
+            editor.remove(
+                KEY_CATEGORY_ANNOUNCEMENT_VOICE_ID
+            )
+        } else {
+            editor.putString(
+                KEY_CATEGORY_ANNOUNCEMENT_VOICE_ID,
+                cleanedVoiceId
+            )
+        }
+
+        editor.apply()
+    }
+
     fun loadSearchResultLimit(): Int {
         val savedLimit =
             preferences.getInt(
@@ -716,6 +772,13 @@ class AppPreferences(
     ): String = "station_$stationId"
 
     companion object {
+
+        private const val KEY_ANNOUNCE_CATEGORY_CHANGES =
+            "announce_category_changes"
+
+        private const val KEY_CATEGORY_ANNOUNCEMENT_VOICE_ID =
+            "category_announcement_voice_id"
+
         private const val PREFERENCES_NAME =
             "music1chat_preferences"
 

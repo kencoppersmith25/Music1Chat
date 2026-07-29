@@ -18,45 +18,26 @@ class CastManager(
     }
 
     private val sessionManagerListener = object : SessionManagerListener<CastSession> {
-        override fun onSessionStarting(session: CastSession) {
-            Log.d("CastManager", "onSessionStarting")
-        }
-
+        override fun onSessionStarting(session: CastSession) {}
         override fun onSessionStarted(session: CastSession, sessionId: String) {
-            Log.d("CastManager", "onSessionStarted")
             onSessionStatusChanged(session, true)
         }
-
         override fun onSessionStartFailed(session: CastSession, error: Int) {
-            Log.d("CastManager", "onSessionStartFailed: $error")
             onSessionStatusChanged(null, false)
         }
-
-        override fun onSessionEnding(session: CastSession) {
-            Log.d("CastManager", "onSessionEnding")
-        }
-
+        override fun onSessionEnding(session: CastSession) {}
         override fun onSessionEnded(session: CastSession, error: Int) {
-            Log.d("CastManager", "onSessionEnded: $error")
             onSessionStatusChanged(null, false)
         }
-
-        override fun onSessionResuming(session: CastSession, sessionId: String) {
-            Log.d("CastManager", "onSessionResuming")
-        }
-
+        override fun onSessionResuming(session: CastSession, sessionId: String) {}
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
-            Log.d("CastManager", "onSessionResumed")
             onSessionStatusChanged(session, true)
         }
-
         override fun onSessionResumeFailed(session: CastSession, error: Int) {
-            Log.d("CastManager", "onSessionResumeFailed: $error")
             onSessionStatusChanged(null, false)
         }
-
         override fun onSessionSuspended(session: CastSession, reason: Int) {
-            Log.d("CastManager", "onSessionSuspended: $reason")
+            onSessionStatusChanged(null, false)
         }
     }
 

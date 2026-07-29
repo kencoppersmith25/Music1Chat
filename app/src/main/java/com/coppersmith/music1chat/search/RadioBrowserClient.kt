@@ -38,33 +38,63 @@ class RadioBrowserClient {
 
         return withContext(Dispatchers.IO) {
             val safeLimit = limit.coerceIn(1, 100)
-            val encodedQuery = URLEncoder.encode(
-                searchText,
-                StandardCharsets.UTF_8.toString()
+
+            val searchPhrases =
+                buildSearchPhrases(searchText)
+
+            val allMatches =
+                mutableListOf<RadioBrowserStation>()
+
+            // First, try the complete station name exactly.
+            allMatches += executeSearch(
+                buildSearchUrl(
+                    parameter = "name",
+                    value = searchText,
+                    exact = true,
+                    limit = safeLimit
+                )
             )
 
-            val commonParameters =
-                "hidebroken=true" +
-                        "&order=clickcount" +
-                        "&reverse=true" +
-                        "&limit=$safeLimit"
+            // Then allow the complete phrase anywhere in the station name.
+            allMatches += executeSearch(
+                buildSearchUrl(
+                    parameter = "name",
+                    value = searchText,
+                    exact = false,
+                    limit = safeLimit
+                )
+            )
 
-            val nameUrl =
-                "$BASE_URL/json/stations/search" +
-                        "?name=$encodedQuery" +
-                        "&nameExact=false" +
-                        "&$commonParameters"
+            // Also search the complete phrase as a tag.
+            allMatches += executeSearch(
+                buildSearchUrl(
+                    parameter = "tag",
+                    value = searchText,
+                    exact = false,
+                    limit = safeLimit
+                )
+            )
 
-            val tagUrl =
-                "$BASE_URL/json/stations/search" +
-                        "?tag=$encodedQuery" +
-                        "&tagExact=false" +
-                        "&$commonParameters"
+            // If the full phrase was too restrictive, search shorter phrases.
+            searchPhrases
+                .filterNot { phrase ->
+                    phrase.equals(
+                        searchText,
+                        ignoreCase = true
+                    )
+                }
+                .forEach { phrase ->
+                    allMatches += executeSearch(
+                        buildSearchUrl(
+                            parameter = "name",
+                            value = phrase,
+                            exact = false,
+                            limit = safeLimit
+                        )
+                    )
+                }
 
-            val nameMatches = executeSearch(nameUrl)
-            val tagMatches = executeSearch(tagUrl)
-
-            (nameMatches + tagMatches)
+            allMatches
                 .distinctBy { station ->
                     station.stationUuid.ifBlank {
                         station.resolvedStreamUrl.ifBlank {
@@ -72,13 +102,152 @@ class RadioBrowserClient {
                         }
                     }
                 }
-                .sortedByDescending { station ->
-                    station.clickCount
-                }
+                .sortedWith(
+                    compareByDescending<RadioBrowserStation> { station ->
+                        calculateClientMatchScore(
+                            stationName = station.name,
+                            query = searchText
+                        )
+                    }.thenByDescending { station ->
+                        station.votes
+                    }.thenByDescending { station ->
+                        station.clickCount
+                    }
+                )
                 .take(safeLimit)
         }
     }
+    private fun buildSearchUrl(
+        parameter: String,
+        value: String,
+        exact: Boolean,
+        limit: Int
+    ): String {
+        val encodedValue =
+            URLEncoder.encode(
+                value.trim(),
+                StandardCharsets.UTF_8.toString()
+            )
 
+        val exactParameter =
+            when (parameter) {
+                "name" -> "&nameExact=$exact"
+                "tag" -> "&tagExact=$exact"
+                else -> ""
+            }
+
+        return "$BASE_URL/json/stations/search" +
+                "?$parameter=$encodedValue" +
+                exactParameter +
+                "&hidebroken=true" +
+                "&order=clickcount" +
+                "&reverse=true" +
+                "&limit=$limit"
+    }
+
+    private fun buildSearchPhrases(
+        query: String
+    ): List<String> {
+        val words =
+            query
+                .trim()
+                .split(Regex("\\s+"))
+                .filter { word ->
+                    word.length >= 2
+                }
+
+        if (words.isEmpty()) {
+            return emptyList()
+        }
+
+        val phrases =
+            mutableListOf<String>()
+
+        // Hawaiian Music Live
+        phrases += words.joinToString(" ")
+
+        // Hawaiian Music
+        // Hawaiian
+        for (wordCount in words.size - 1 downTo 1) {
+            phrases += words
+                .take(wordCount)
+                .joinToString(" ")
+        }
+
+        // Individual meaningful words.
+        phrases += words
+            .filterNot { word ->
+                word.equals("live", ignoreCase = true) ||
+                        word.equals("radio", ignoreCase = true) ||
+                        word.equals("fm", ignoreCase = true)
+            }
+
+        return phrases
+            .map { phrase ->
+                phrase.trim()
+            }
+            .filter { phrase ->
+                phrase.isNotBlank()
+            }
+            .distinctBy { phrase ->
+                phrase.lowercase()
+            }
+    }
+
+    private fun calculateClientMatchScore(
+        stationName: String,
+        query: String
+    ): Int {
+        val normalizedStationName =
+            normalizeForMatching(stationName)
+
+        val normalizedQuery =
+            normalizeForMatching(query)
+
+        return when {
+            normalizedStationName == normalizedQuery -> 1_000
+
+            normalizedStationName.startsWith(
+                normalizedQuery
+            ) -> 800
+
+            normalizedStationName.contains(
+                normalizedQuery
+            ) -> 650
+
+            else -> {
+                val queryWords =
+                    normalizedQuery
+                        .split(' ')
+                        .filter { word ->
+                            word.isNotBlank()
+                        }
+
+                queryWords.count { word ->
+                    normalizedStationName
+                        .split(' ')
+                        .contains(word)
+                } * 100
+            }
+        }
+    }
+
+    private fun normalizeForMatching(
+        value: String
+    ): String {
+        return value
+            .trim()
+            .lowercase()
+            .replace(
+                Regex("[^a-z0-9]+"),
+                " "
+            )
+            .trim()
+            .replace(
+                Regex("\\s+"),
+                " "
+            )
+    }
     private fun executeSearch(
         requestUrl: String
     ): List<RadioBrowserStation> {
