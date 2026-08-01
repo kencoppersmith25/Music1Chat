@@ -258,6 +258,9 @@ class CategoryAnnouncer(
         lastAnnouncedText = text
         lastAnnouncementTimeMillis = now
 
+        engine.setSpeechRate(0.92f)
+        engine.setPitch(1.0f)
+
         val result =
             engine.speak(
                 text,

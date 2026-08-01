@@ -1,13 +1,18 @@
 package com.coppersmith.music1chat.coordinator
 
-// Music1Chat MainScreen extraction: 2026-07-29 v01
-// Owns station search, result merging/deduplication, and preferred-result restoration.
+// Music1Chat coordinated release
+// Date: 2026-07-30
+// Release: 2026-07-30 v02
+//
+// Owns the complete search workflow calculation. MainScreen remains
+// responsible only for applying the returned state to Compose and playback.
 
 import com.coppersmith.music1chat.models.Station
 import com.coppersmith.music1chat.persistence.SavedSearchCategory
 import com.coppersmith.music1chat.search.LiveStationSearchEngine
 import com.coppersmith.music1chat.search.SearchResult
 import com.coppersmith.music1chat.search.StationSearchEngine
+import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
 
@@ -18,7 +23,22 @@ data class CoordinatedSearchResult(
     val stations: List<Station>
 )
 
-class MainScreenSearchCoordinator(
+sealed interface SearchWorkflowOutcome {
+    data class Success(
+        val state: PlaybackSessionState,
+        val savedSearch: SavedSearchCategory,
+        val localCount: Int,
+        val liveCount: Int
+    ) : SearchWorkflowOutcome
+
+    data class CachedFallback(
+        val state: PlaybackSessionState
+    ) : SearchWorkflowOutcome
+
+    data object Empty : SearchWorkflowOutcome
+}
+
+class Search(
     private val stationSearchEngine: StationSearchEngine = StationSearchEngine(),
     private val liveStationSearchEngine: LiveStationSearchEngine = LiveStationSearchEngine()
 ) {
@@ -32,6 +52,109 @@ class MainScreenSearchCoordinator(
         savedSearches.firstOrNull { savedSearch ->
             savedSearch.query.equals(query, ignoreCase = true)
         }
+
+    fun resolveAnchorCategoryId(
+        preserveAnchor: Boolean,
+        stateBeforeSearch: PlaybackSessionState,
+        existingSavedSearch: SavedSearchCategory?,
+        currentAnchorCategoryId: Long?
+    ): Long? =
+        existingSavedSearch?.anchorCategoryId
+            ?: if (!preserveAnchor && !stateBeforeSearch.isSearch) {
+                stateBeforeSearch.categoryId ?: currentAnchorCategoryId
+            } else {
+                currentAnchorCategoryId
+            }
+
+    suspend fun executeWorkflow(
+        query: String,
+        limit: Int,
+        repositoryStations: List<Station>,
+        savedSearches: List<SavedSearchCategory>,
+        cachedSessions: Map<String, PlaybackSessionState>,
+        anchorCategoryId: Long?,
+        startPlayback: Boolean,
+        sessionController: PlaybackSessionController
+    ): SearchWorkflowOutcome {
+        val searchQuery = query.trim()
+        val coordinatedResult = search(
+            query = searchQuery,
+            limit = limit,
+            repositoryStations = repositoryStations
+        )
+
+        val savedSearch = savedSearchFor(savedSearches, searchQuery)
+
+        if (coordinatedResult.stations.isEmpty()) {
+            val cachedSearch =
+                cachedSessions[normalizedKey(searchQuery)]
+                    ?.takeIf { state -> state.hasStations }
+                    ?: return SearchWorkflowOutcome.Empty
+
+            return SearchWorkflowOutcome.CachedFallback(
+                state = sessionController.showSearch(
+                    query = cachedSearch.categoryName,
+                    stations = cachedSearch.stations,
+                    preferredStationId = cachedSearch.currentStation?.id,
+                    startPlayback = startPlayback
+                )
+            )
+        }
+
+        val newState =
+            sessionController.showSearch(
+                query = searchQuery,
+                stations = coordinatedResult.stations,
+                preferredStationId = preferredStationId(
+                    savedSearch = savedSearch,
+                    stations = coordinatedResult.stations
+                ),
+                startPlayback = startPlayback
+            )
+
+        return SearchWorkflowOutcome.Success(
+            state = newState,
+            savedSearch = SavedSearchCategory(
+                query = searchQuery,
+                anchorCategoryId =
+                    savedSearch?.anchorCategoryId ?: anchorCategoryId,
+                lastResultCount = coordinatedResult.stations.size,
+                isCurrent = true,
+                currentStationId = newState.currentStation?.id,
+                currentIndex = newState.safeCurrentIndex,
+                navigationEnabled =
+                    savedSearch?.navigationEnabled ?: true,
+                sortOrder =
+                    savedSearch?.sortOrder ?: savedSearches.size
+            ),
+            localCount = coordinatedResult.localCount,
+            liveCount = coordinatedResult.liveCount
+        )
+    }
+
+    suspend fun prefetchWorkflow(
+        query: String,
+        limit: Int,
+        repositoryStations: List<Station>,
+        savedSearches: List<SavedSearchCategory>
+    ): PlaybackSessionState? {
+        val searchQuery = query.trim()
+        val stations = search(
+            query = searchQuery,
+            limit = limit,
+            repositoryStations = repositoryStations
+        ).stations
+
+        if (stations.isEmpty()) {
+            return null
+        }
+
+        return createPrefetchedState(
+            query = searchQuery,
+            stations = stations,
+            savedSearch = savedSearchFor(savedSearches, searchQuery)
+        )
+    }
 
     suspend fun search(
         query: String,

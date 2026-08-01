@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Music1Chat"
+rootProject.name = "RadioEasy"
 include(":app")
  

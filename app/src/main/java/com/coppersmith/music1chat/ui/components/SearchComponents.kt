@@ -241,7 +241,7 @@ fun TopControlBar(
             Alignment.CenterVertically
     ) {
         Text(
-            text = "Music1Chat",
+            text = "RadioEasy",
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 27.sp,

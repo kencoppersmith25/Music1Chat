@@ -125,27 +125,6 @@ fun Content(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TextButton(onClick = onRideLogToggle) {
-                Text(
-                    if (rideLogActive) {
-                        "Stop Ride Log"
-                    } else {
-                        "Start Ride Log"
-                    }
-                )
-            }
-
-            if (!rideLogActive && rideLogAvailable) {
-                TextButton(onClick = onShareRideLog) {
-                    Text("Share Ride Log")
-                }
-            }
-        }
 
         Spacer(modifier = Modifier.height(8.dp))
 

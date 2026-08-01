@@ -173,6 +173,13 @@ class RadioPlayer(
 
             isPlaying = playing
 
+            RideLogger.log(
+                "IS_PLAYING_CHANGED " +
+                        "playing=$playing " +
+                        "state=${controller?.playbackState} " +
+                        "requested=$playbackRequested"
+            )
+
             if (playing) {
                 playbackRequested = true
                 activeRequestHasPlayed = true
@@ -193,6 +200,22 @@ class RadioPlayer(
             ) {
                 startStallWatchdog(request)
             }
+        }
+
+        override fun onPlayWhenReadyChanged(
+            playWhenReady: Boolean,
+            reason: Int
+        ) {
+            val request = matchingActiveRequest() ?: return
+
+            playbackRequested = playWhenReady
+
+            RideLogger.log(
+                "PLAYBACK_REQUEST_SYNC " +
+                        "playWhenReady=$playWhenReady " +
+                        "reason=$reason " +
+                        "station='${request.station.name}'"
+            )
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -227,6 +250,8 @@ class RadioPlayer(
     fun play(station: Station) {
         play(station = station, source = PlaybackSource.NAVIGATION)
     }
+
+
 
     fun play(station: Station, source: PlaybackSource) {
         val request = createPlaybackRequest(station = station, source = source)

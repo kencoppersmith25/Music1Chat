@@ -12,20 +12,31 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Small, field-oriented diagnostic logger for Bluetooth/navigation ride tests.
+ * Automatic field-oriented diagnostic logger.
  *
- * The current ride log is stored in Downloads/Music1Chat/Music1Chat-RideLog.txt.
- * Starting a new ride log replaces the previous one.
+ * A new timestamped file is created each time the app process starts.
+ * Previous logs remain in Downloads/Music1Chat.
  */
 object RideLogger {
-    private const val FILE_NAME = "Music1Chat-RideLog.txt"
+
     private val RELATIVE_DIRECTORY =
         "${Environment.DIRECTORY_DOWNLOADS}/Music1Chat"
-    private const val MAX_LINES = 1_000
+
+    private const val MAX_LINES = 10_000
 
     private val lock = Any()
-    private val timestampFormat =
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+
+    private val lineTimestampFormat =
+        SimpleDateFormat(
+            "yyyy-MM-dd HH:mm:ss.SSS",
+            Locale.US
+        )
+
+    private val fileTimestampFormat =
+        SimpleDateFormat(
+            "yyyy-MM-dd_HH-mm-ss",
+            Locale.US
+        )
 
     private var appContext: Context? = null
     private var activeUri: Uri? = null
@@ -33,49 +44,95 @@ object RideLogger {
     private var lineCount: Int = 0
 
     val isActive: Boolean
-        get() = synchronized(lock) { activeUri != null }
+        get() =
+            synchronized(lock) {
+                activeUri != null
+            }
 
     val hasLog: Boolean
-        get() = synchronized(lock) { mostRecentUri != null }
-
-    fun start(context: Context): Result<Unit> = runCatching {
-        require(Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            "Ride logging requires Android 10 or newer."
-        }
-
-        synchronized(lock) {
-            stopLocked(writeFooter = false)
-
-            val applicationContext = context.applicationContext
-            val resolver = applicationContext.contentResolver
-            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
-
-            resolver.delete(
-                collection,
-                "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND " +
-                        "${MediaStore.MediaColumns.RELATIVE_PATH}=?",
-                arrayOf(FILE_NAME, "$RELATIVE_DIRECTORY/")
-            )
-
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, FILE_NAME)
-                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, RELATIVE_DIRECTORY)
+        get() =
+            synchronized(lock) {
+                mostRecentUri != null
             }
 
-            val uri = checkNotNull(resolver.insert(collection, values)) {
-                "Android could not create the ride log file."
+    /**
+     * Starts a new timestamped log.
+     *
+     * Calling this again during the same process does nothing, so accidental
+     * duplicate initialization cannot create several files.
+     */
+    fun startAutomatically(
+        context: Context
+    ): Result<Unit> =
+        runCatching {
+            require(
+                Build.VERSION.SDK_INT >=
+                        Build.VERSION_CODES.Q
+            ) {
+                "Ride logging requires Android 10 or newer."
             }
 
-            appContext = applicationContext
-            activeUri = uri
-            mostRecentUri = uri
-            lineCount = 0
+            synchronized(lock) {
+                if (activeUri != null) {
+                    return@runCatching
+                }
 
-            appendLocked("Ride log started")
-            appendLocked("Device Android version=${Build.VERSION.RELEASE} sdk=${Build.VERSION.SDK_INT}")
+                val applicationContext =
+                    context.applicationContext
+
+                val resolver =
+                    applicationContext.contentResolver
+
+                val collection =
+                    MediaStore.Downloads
+                        .EXTERNAL_CONTENT_URI
+
+                val fileName =
+                    "Music1Chat-RideLog-" +
+                            fileTimestampFormat.format(
+                                Date()
+                            ) +
+                            ".txt"
+
+                val values =
+                    ContentValues().apply {
+                        put(
+                            MediaStore.MediaColumns.DISPLAY_NAME,
+                            fileName
+                        )
+                        put(
+                            MediaStore.MediaColumns.MIME_TYPE,
+                            "text/plain"
+                        )
+                        put(
+                            MediaStore.MediaColumns.RELATIVE_PATH,
+                            RELATIVE_DIRECTORY
+                        )
+                    }
+
+                val uri =
+                    checkNotNull(
+                        resolver.insert(
+                            collection,
+                            values
+                        )
+                    ) {
+                        "Android could not create the ride log file."
+                    }
+
+                appContext = applicationContext
+                activeUri = uri
+                mostRecentUri = uri
+                lineCount = 0
+
+                appendLocked("Ride log started")
+                appendLocked(
+                    "Device Android version=" +
+                            "${Build.VERSION.RELEASE} " +
+                            "sdk=${Build.VERSION.SDK_INT}"
+                )
+            }
         }
-    }
 
     fun stop() {
         synchronized(lock) {
@@ -83,59 +140,116 @@ object RideLogger {
         }
     }
 
-    fun log(message: String) {
+    fun log(
+        message: String
+    ) {
         synchronized(lock) {
-            if (activeUri == null || lineCount >= MAX_LINES) return
+            if (
+                activeUri == null ||
+                lineCount >= MAX_LINES
+            ) {
+                return
+            }
 
-            appendLocked(message.replace('\n', ' '))
+            appendLocked(
+                message.replace('\n', ' ')
+            )
 
             if (lineCount == MAX_LINES) {
-                appendLocked("Maximum ride-log size reached; further events were not recorded.")
-                stopLocked(writeFooter = false)
+                appendLocked(
+                    "Maximum ride-log size reached; " +
+                            "further events were not recorded."
+                )
+
+                stopLocked(
+                    writeFooter = false
+                )
             }
         }
     }
 
-    fun share(context: Context): Result<Unit> = runCatching {
-        val uri = synchronized(lock) {
-            mostRecentUri
-        } ?: error("No ride log is available to share.")
+    fun share(
+        context: Context
+    ): Result<Unit> =
+        runCatching {
+            val uri =
+                synchronized(lock) {
+                    mostRecentUri
+                } ?: error(
+                    "No ride log is available to share."
+                )
 
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_STREAM, uri)
-            putExtra(Intent.EXTRA_SUBJECT, "Music1Chat ride log")
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val intent =
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(
+                        Intent.EXTRA_STREAM,
+                        uri
+                    )
+                    putExtra(
+                        Intent.EXTRA_SUBJECT,
+                        "Music1Chat ride log"
+                    )
+                    addFlags(
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+
+            context.startActivity(
+                Intent.createChooser(
+                    intent,
+                    "Share ride log"
+                ).apply {
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK
+                    )
+                }
+            )
         }
 
-        context.startActivity(
-            Intent.createChooser(intent, "Share ride log").apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        )
-    }
-
-    private fun stopLocked(writeFooter: Boolean) {
-        if (writeFooter && activeUri != null) {
+    private fun stopLocked(
+        writeFooter: Boolean
+    ) {
+        if (
+            writeFooter &&
+            activeUri != null
+        ) {
             appendLocked("Ride log stopped")
         }
+
         activeUri = null
         appContext = null
     }
 
-    private fun appendLocked(message: String) {
-        val context = appContext ?: return
-        val uri = activeUri ?: return
-        val timestamp = timestampFormat.format(Date())
-        val line = "$timestamp  $message\n"
+    private fun appendLocked(
+        message: String
+    ) {
+        val context =
+            appContext ?: return
+
+        val uri =
+            activeUri ?: return
+
+        val timestamp =
+            lineTimestampFormat.format(
+                Date()
+            )
+
+        val line =
+            "$timestamp  $message\n"
 
         context.contentResolver
-            .openOutputStream(uri, "wa")
+            .openOutputStream(
+                uri,
+                "wa"
+            )
             ?.bufferedWriter()
             ?.use { writer ->
                 writer.write(line)
             }
-            ?: error("Android could not append to the ride log file.")
+            ?: error(
+                "Android could not append to the ride log file."
+            )
 
         lineCount++
     }

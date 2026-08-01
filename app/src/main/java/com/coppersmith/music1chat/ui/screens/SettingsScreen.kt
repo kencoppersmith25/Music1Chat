@@ -1,14 +1,14 @@
 package com.coppersmith.music1chat.ui.screens
 
 // Music1Chat coordinated release
-// Date: 2026-07-27
-// Release: 2026-07-27 v01
+// Date: 2026-07-30
+// Release: 2026-07-30 v01
 //
 // Settings:
 // - Configures live-search result limit.
 // - Selects any installed English Android voice.
-// - Tests the selected voice with "Classical."
-// - Saves the selected voice for category announcements.
+// - Enables or disables category-change announcements.
+// - Tapping a voice immediately previews and saves it.
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -92,6 +93,14 @@ fun SettingsScreen(
         mutableStateOf(
             appPreferences
                 .loadCategoryAnnouncementVoiceId()
+        )
+    }
+
+    var announceCategoryChanges by
+    remember {
+        mutableStateOf(
+            appPreferences
+                .loadAnnounceCategoryChanges()
         )
     }
 
@@ -316,9 +325,51 @@ fun SettingsScreen(
                     modifier = Modifier.height(10.dp)
                 )
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        Arrangement.SpaceBetween,
+                    verticalAlignment =
+                        Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Category announcements",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Text(
+                            text =
+                                "Speak the category name after the category changes.",
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            fontSize = 14.sp,
+                            lineHeight = 19.sp
+                        )
+                    }
+
+                    Switch(
+                        checked = announceCategoryChanges,
+                        onCheckedChange = { enabled ->
+                            announceCategoryChanges = enabled
+                            appPreferences
+                                .saveAnnounceCategoryChanges(
+                                    enabled
+                                )
+                        }
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.height(14.dp)
+                )
+
                 Text(
-                    text =
-                        "Category announcement voice",
+                    text = "Category announcement voice",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -340,43 +391,16 @@ fun SettingsScreen(
                     modifier = Modifier.height(8.dp)
                 )
 
-                Row(
-                    modifier =
-                        Modifier.fillMaxWidth(),
-                    horizontalArrangement =
-                        Arrangement.spacedBy(8.dp)
+                TextButton(
+                    onClick = {
+                        showVoicePicker = true
+                    }
                 ) {
-                    TextButton(
-                        onClick = {
-                            showVoicePicker = true
-                        }
-                    ) {
-                        Text(
-                            text = "Choose Voice",
-                            fontSize = 17.sp,
-                            fontWeight =
-                                FontWeight.SemiBold
-                        )
-                    }
-
-                    TextButton(
-                        onClick = {
-                            categoryAnnouncer
-                                .selectVoiceForSession(
-                                    selectedVoiceId
-                                )
-
-                            categoryAnnouncer
-                                .testVoice("Classical")
-                        }
-                    ) {
-                        Text(
-                            text = "Test Voice",
-                            fontSize = 17.sp,
-                            fontWeight =
-                                FontWeight.SemiBold
-                        )
-                    }
+                    Text(
+                        text = "Choose Voice",
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
 
                 Spacer(
@@ -390,15 +414,7 @@ fun SettingsScreen(
         VoicePickerDialog(
             voices = installedVoices,
             voicesLoading = voicesLoading,
-            initialVoiceId = selectedVoiceId,
-            onTestVoice = { voiceId ->
-                categoryAnnouncer
-                    .selectVoiceForSession(voiceId)
-
-                categoryAnnouncer
-                    .testVoice("Classical")
-            },
-            onSave = { voiceId ->
+            onVoiceSelected = { voiceId ->
                 appPreferences
                     .saveCategoryAnnouncementVoiceId(
                         voiceId
@@ -409,7 +425,8 @@ fun SettingsScreen(
                 categoryAnnouncer
                     .selectVoiceForSession(voiceId)
 
-                showVoicePicker = false
+                categoryAnnouncer
+                    .testVoice("Classical")
             },
             onDismiss = {
                 categoryAnnouncer
@@ -427,36 +444,29 @@ fun SettingsScreen(
 private fun VoicePickerDialog(
     voices: List<VoiceExplorer.VoiceOption>,
     voicesLoading: Boolean,
-    initialVoiceId: String?,
-    onTestVoice: (String?) -> Unit,
-    onSave: (String?) -> Unit,
+    onVoiceSelected: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var temporaryVoiceId by
-    remember(
-        initialVoiceId,
-        voices
-    ) {
-        mutableStateOf(initialVoiceId)
+    var selectedVoiceId by
+    remember {
+        mutableStateOf<String?>(null)
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text =
-                    "Category Announcement Voice",
+                text = "Category Announcement Voice",
                 fontWeight = FontWeight.Bold
             )
         },
         text = {
             Column(
-                modifier =
-                    Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text =
-                        "Tap a voice to hear it immediately. The selected voice is saved automatically.",
+                        "Tap a voice to hear it immediately. Your choice is saved automatically.",
                     color =
                         MaterialTheme.colorScheme
                             .onSurfaceVariant,
@@ -472,12 +482,10 @@ private fun VoicePickerDialog(
                     title = "Phone Default",
                     subtitle =
                         "Use the phone's normal Text-to-Speech voice.",
-                    selected =
-                        temporaryVoiceId == null,
+                    selected = selectedVoiceId == DEFAULT_VOICE_MARKER,
                     onClick = {
-                        temporaryVoiceId = null
-                        onSave(null)
-                        onTestVoice(null)
+                        selectedVoiceId = DEFAULT_VOICE_MARKER
+                        onVoiceSelected(null)
                     }
                 )
 
@@ -489,17 +497,14 @@ private fun VoicePickerDialog(
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
-                                    .padding(
-                                        vertical = 24.dp
-                                    ),
+                                    .padding(vertical = 24.dp),
                             horizontalArrangement =
                                 Arrangement.Center,
                             verticalAlignment =
                                 Alignment.CenterVertically
                         ) {
                             CircularProgressIndicator(
-                                modifier =
-                                    Modifier.size(28.dp)
+                                modifier = Modifier.size(28.dp)
                             )
                         }
                     }
@@ -509,9 +514,7 @@ private fun VoicePickerDialog(
                             text =
                                 "No installed English voices were found.",
                             modifier =
-                                Modifier.padding(
-                                    vertical = 18.dp
-                                ),
+                                Modifier.padding(vertical = 18.dp),
                             color =
                                 MaterialTheme.colorScheme
                                     .onSurfaceVariant
@@ -520,86 +523,39 @@ private fun VoicePickerDialog(
 
                     else -> {
                         LazyColumn(
-                            modifier =
-                                Modifier.heightIn(
-                                    max = 360.dp
-                                )
+                            modifier = Modifier.heightIn(max = 360.dp)
                         ) {
                             items(
                                 items = voices,
-                                key = { voice ->
-                                    voice.voiceId
-                                }
+                                key = { voice -> voice.voiceId }
                             ) { voice ->
                                 VoiceChoiceRow(
-                                    title =
-                                        voice.displayName,
+                                    title = voice.displayName,
                                     subtitle =
-                                        if (
-                                            voice.isNetworkVoice
-                                        ) {
+                                        if (voice.isNetworkVoice) {
                                             "Requires a network connection"
                                         } else {
                                             "Available offline"
                                         },
                                     selected =
-                                        temporaryVoiceId ==
-                                                voice.voiceId,
+                                        selectedVoiceId == voice.voiceId,
                                     onClick = {
-                                        temporaryVoiceId =
-                                            voice.voiceId
-
-                                        onTestVoice(
-                                            voice.voiceId
-                                        )
+                                        selectedVoiceId = voice.voiceId
+                                        onVoiceSelected(voice.voiceId)
                                     }
                                 )
                             }
                         }
                     }
                 }
-
-                Spacer(
-                    modifier = Modifier.height(8.dp)
-                )
-
-                TextButton(
-                    onClick = {
-                        onTestVoice(
-                            temporaryVoiceId
-                        )
-                    },
-                    enabled = !voicesLoading
-                ) {
-                    Text(
-                        text =
-                            "Test Selected Voice",
-                        fontSize = 16.sp,
-                        fontWeight =
-                            FontWeight.SemiBold
-                    )
-                }
             }
         },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(temporaryVoiceId)
-                },
-                enabled = !voicesLoading
-            ) {
-                Text("Save")
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onDismiss
-            ) {
-                Text("Cancel")
-            }
-        }
+        confirmButton = {}
     )
 }
+
+private const val DEFAULT_VOICE_MARKER =
+    "__phone_default__"
 
 @Composable
 private fun VoiceChoiceRow(

@@ -1,7 +1,15 @@
 package com.coppersmith.music1chat.coordinator
 
+// Music1Chat coordinated release
+// Date: 2026-07-30
+// Release: 2026-07-30 v02
+//
+// Merges the category-change decision logic into the existing
+// AnnouncementManager. No separate Announcement.kt is required.
+
 import android.content.Context
 import com.coppersmith.music1chat.persistence.AppPreferences
+import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.speech.CategoryAnnouncer
 
 class AnnouncementManager(
@@ -24,6 +32,28 @@ class AnnouncementManager(
         )
     }
 
+    /**
+     * Called by MainScreen after publishing a new playback-session state.
+     *
+     * Startup restoration and station-only changes remain silent. A real
+     * category change is announced only when the preference is enabled.
+     */
+    fun onSessionChanged(
+        previousState: PlaybackSessionState,
+        newState: PlaybackSessionState,
+        startupRestoreComplete: Boolean
+    ) {
+        if (!startupRestoreComplete) {
+            return
+        }
+
+        if (!categoryChanged(previousState, newState)) {
+            return
+        }
+
+        announceCategory(newState.categoryName)
+    }
+
     fun announceCategory(
         categoryName: String
     ) {
@@ -36,7 +66,22 @@ class AnnouncementManager(
             return
         }
 
-        announcer.testVoice(categoryName)
+        val cleanCategoryName =
+            categoryName
+                .removePrefix("Search:")
+                .trim()
+
+        if (cleanCategoryName.isBlank()) {
+            return
+        }
+
+        // Reload the saved voice in case it was changed in Settings while
+        // this long-lived manager remained active.
+        announcer.selectVoiceForSession(
+            preferences.loadCategoryAnnouncementVoiceId()
+        )
+
+        announcer.testVoice(cleanCategoryName)
     }
 
     fun previewVoice(
@@ -59,5 +104,23 @@ class AnnouncementManager(
 
     fun shutdown() {
         announcer.shutdown()
+    }
+
+    private fun categoryChanged(
+        previousState: PlaybackSessionState,
+        newState: PlaybackSessionState
+    ): Boolean {
+        if (previousState.isSearch != newState.isSearch) {
+            return true
+        }
+
+        return if (newState.isSearch) {
+            !previousState.categoryName.equals(
+                newState.categoryName,
+                ignoreCase = true
+            )
+        } else {
+            previousState.categoryId != newState.categoryId
+        }
     }
 }

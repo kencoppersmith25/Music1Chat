@@ -7,7 +7,7 @@ data class CategoryDeletionPlan(
     val preferredReplacementKey: String?
 )
 
-object CategoryDeletion {
+object CategoryOperations {
 
     fun plan(
         deletingKey: String,
@@ -49,8 +49,7 @@ object CategoryDeletion {
 
         return CategoryDeletionPlan(
             deletingCurrent = deletingCurrent,
-            preferredReplacementKey =
-                preferredReplacementKey
+            preferredReplacementKey = preferredReplacementKey
         )
     }
 

@@ -31,6 +31,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.coppersmith.music1chat.models.Category
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+
 
 // Music1Chat coordinated release
 // File: CategoryPicker.kt
@@ -61,6 +66,8 @@ fun CategoryPicker(
      * matching category first, but it must not hide Hawaiian, 60s, 70s, etc.
      * Once the user edits the field, normal filtering begins.
      */
+
+    val focusManager = LocalFocusManager.current
     val initialSearchText = remember { searchText.trim() }
 
     val pickerItems = remember(
@@ -176,7 +183,32 @@ fun CategoryPicker(
                             imageVector = Icons.Default.Search,
                             contentDescription = "Find category"
                         )
-                    }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            val categoryName = searchText.trim()
+
+                            if (categoryName.isNotBlank()) {
+                                val existingCategory =
+                                    categories.firstOrNull { category ->
+                                        category.name.equals(
+                                            categoryName,
+                                            ignoreCase = true
+                                        )
+                                    }
+
+                                focusManager.clearFocus()
+
+                                onCategorySelected(
+                                    categoryName,
+                                    existingCategory
+                                )
+                            }
+                        }
+                    )
                 )
 
                 Spacer(
