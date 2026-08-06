@@ -2,8 +2,8 @@ package com.coppersmith.music1chat.playback
 
 // Music1Chat coordinated release
 // File: PlaybackService.kt
-// Release: 2026-07-23 v03
-// Coordinated with RideLogger diagnostic infrastructure.
+// Release: 2026-08-06 v04
+// Coordinated with RideLogger diagnostics and Assistant transport controls.
 
 import android.content.Intent
 import android.util.Log
@@ -11,6 +11,7 @@ import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -44,6 +45,7 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
     private lateinit var exoPlayer: ExoPlayer
+    private lateinit var assistantPlayer: AssistantCommandPlayer
     private var castPlayer: CastPlayer? = null
     private lateinit var castManager: CastManager
     private lateinit var appPreferences: AppPreferences
@@ -71,6 +73,62 @@ class PlaybackService : MediaSessionService() {
         bufferingReconnectAttempted = false
         cancelRetry()
         cancelBufferingWatchdog()
+    }
+
+    /**
+     * Advertises standard next/previous transport commands to system media
+     * controllers (including Google Assistant/Gemini) and maps them to the
+     * same command bus already used by Bluetooth controls.
+     *
+     * Play, pause and stop continue to be handled normally by ExoPlayer.
+     */
+    private inner class AssistantCommandPlayer(
+        player: Player
+    ) : ForwardingPlayer(player) {
+
+        override fun getAvailableCommands(): Player.Commands {
+            return super.getAvailableCommands()
+                .buildUpon()
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .build()
+        }
+
+        override fun isCommandAvailable(command: Int): Boolean {
+            return when (command) {
+                Player.COMMAND_SEEK_TO_NEXT,
+                Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
+                Player.COMMAND_SEEK_TO_PREVIOUS,
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+                else -> super.isCommandAvailable(command)
+            }
+        }
+
+        override fun hasNextMediaItem(): Boolean = true
+
+        override fun hasPreviousMediaItem(): Boolean = true
+
+        override fun seekToNext() {
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_STATION source=seekToNext")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_STATION)
+        }
+
+        override fun seekToNextMediaItem() {
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_STATION source=seekToNextMediaItem")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_STATION)
+        }
+
+        override fun seekToPrevious() {
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekToPrevious")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
+        }
+
+        override fun seekToPreviousMediaItem() {
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekToPreviousMediaItem")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
+        }
     }
 
     private val mediaSessionCallback =
@@ -106,14 +164,14 @@ class PlaybackService : MediaSessionService() {
                 if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) || events.contains(Player.EVENT_IS_PLAYING_CHANGED)) {
                     val isActuallyPlaying = player.isPlaying
                     val isBuffering = player.playbackState == Player.STATE_BUFFERING
-                    
+
                     if (!isActuallyPlaying && !isBuffering && playbackRequested) {
                         scheduleRecovery()
                     } else {
                         recoveryJob?.cancel()
                     }
                 }
-                
+
                 if (events.contains(Player.EVENT_PLAYER_ERROR)) {
                     returnToLocalPlayer()
                 }
@@ -184,11 +242,11 @@ class PlaybackService : MediaSessionService() {
                 if (existingMetadata.title?.toString() == title && existingMetadata.artist?.toString() == artist) continue
 
                 val updatedMetadata = existingMetadata.buildUpon()
-                        .setTitle(title)
-                        .setArtist(artist)
-                        .setStation(existingMetadata.station ?: existingMetadata.title)
-                        .setArtworkUri(existingMetadata.artworkUri)
-                        .build()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setStation(existingMetadata.station ?: existingMetadata.title)
+                    .setArtworkUri(existingMetadata.artworkUri)
+                    .build()
 
                 val updatedItem = currentItem.buildUpon().setMediaMetadata(updatedMetadata).build()
                 currentPlayer.replaceMediaItem(currentPlayer.currentMediaItemIndex, updatedItem)
@@ -212,33 +270,35 @@ class PlaybackService : MediaSessionService() {
         appPreferences = AppPreferences(applicationContext)
 
         val audioAttributes = AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .build()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
 
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent(USER_AGENT)
-                .setConnectTimeoutMs(HTTP_CONNECT_TIMEOUT_MS)
-                .setReadTimeoutMs(HTTP_READ_TIMEOUT_MS)
-                .setAllowCrossProtocolRedirects(true)
+            .setUserAgent(USER_AGENT)
+            .setConnectTimeoutMs(HTTP_CONNECT_TIMEOUT_MS)
+            .setReadTimeoutMs(HTTP_READ_TIMEOUT_MS)
+            .setAllowCrossProtocolRedirects(true)
 
         val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
 
         exoPlayer = ExoPlayer.Builder(this)
-                .setMediaSourceFactory(mediaSourceFactory)
-                .build()
-                .apply {
-                    setAudioAttributes(audioAttributes, true)
-                    setWakeMode(C.WAKE_MODE_NETWORK)
-                }
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
+                setAudioAttributes(audioAttributes, true)
+                setWakeMode(C.WAKE_MODE_NETWORK)
+            }
 
         exoPlayer.addListener(playerListener)
 
-        mediaSession = MediaSession.Builder(this, exoPlayer)
-                .setId("Music1ChatSession")
-                .setCallback(mediaSessionCallback)
-                .build()
+        assistantPlayer = AssistantCommandPlayer(exoPlayer)
+
+        mediaSession = MediaSession.Builder(this, assistantPlayer)
+            .setId("Music1ChatSession")
+            .setCallback(mediaSessionCallback)
+            .build()
 
         playbackScope.launch {
             try {
@@ -259,7 +319,7 @@ class PlaybackService : MediaSessionService() {
     private fun beginCastHandoff() {
         val remotePlayer = castPlayer ?: return
         RideLogger.log("CAST_STARTING station='${currentStationName()}'")
-        
+
         lastAttemptedMediaItems = copyMediaItems(exoPlayer)
         if (lastAttemptedMediaItems.isEmpty()) return
 
@@ -275,12 +335,12 @@ class PlaybackService : MediaSessionService() {
             remotePlayer.clearMediaItems()
             remotePlayer.setMediaItems(lastAttemptedMediaItems, currentIndex, currentPosition)
             remotePlayer.prepare()
-            
+
             if (shouldPlay) {
                 remotePlayer.play()
             }
             RideLogger.log("CAST_SWITCH_COMPLETE station='${currentStationName()}'")
-            
+
         } catch (error: Exception) {
             RideLogger.log("CAST_HANDOFF_EXCEPTION message='${error.message}'")
             returnToLocalPlayer()
@@ -300,13 +360,13 @@ class PlaybackService : MediaSessionService() {
 
     private fun returnToLocalPlayer() {
         recoveryJob?.cancel()
-        
+
         if (::castManager.isInitialized) {
             castManager.stopCasting()
         }
 
         val remotePlayer = castPlayer
-        mediaSession?.player = exoPlayer
+        mediaSession?.player = assistantPlayer
 
         val itemsToRestore = if (remotePlayer != null && remotePlayer.mediaItemCount > 0) {
             copyMediaItems(remotePlayer)
@@ -319,7 +379,7 @@ class PlaybackService : MediaSessionService() {
         val currentPosition = remotePlayer?.currentPosition ?: 0
 
         safelyResetCastPlayer(remotePlayer)
-        
+
         beginPlaybackAttempt()
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
@@ -420,7 +480,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun isTemporaryNetworkFailure(error: PlaybackException): Boolean {
         return error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-               error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
     }
 
     private fun currentStationName(): String {

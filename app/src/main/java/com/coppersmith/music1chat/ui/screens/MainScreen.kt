@@ -1574,6 +1574,7 @@ fun MainScreen() {
                 displayedStation = displayedStation,
                 songTitle = radioPlayer.nowPlayingTitle,
                 songArtist = radioPlayer.nowPlayingArtist,
+                artworkUri = radioPlayer.nowPlayingArtworkUri,
                 displayedStationIndex = displayedStationIndex,
                 displayedStationCount = displayedStationCount,
                 categoryIsSearch = sessionState.isSearch,

@@ -94,27 +94,59 @@ class RadioBrowserClient {
                     )
                 }
 
-            allMatches
-                .distinctBy { station ->
-                    station.stationUuid.ifBlank {
-                        station.resolvedStreamUrl.ifBlank {
-                            station.streamUrl
+            val rankedStations =
+                allMatches
+                    .distinctBy { station ->
+                        station.stationUuid.ifBlank {
+                            station.resolvedStreamUrl.ifBlank {
+                                station.streamUrl
+                            }
                         }
                     }
-                }
-                .sortedWith(
-                    compareByDescending<RadioBrowserStation> { station ->
-                        calculateClientMatchScore(
-                            stationName = station.name,
-                            query = searchText
-                        )
-                    }.thenByDescending { station ->
-                        station.votes
-                    }.thenByDescending { station ->
-                        station.clickCount
+                    // Radio Browser can contain multiple station records that
+                    // resolve to exactly the same playable stream.
+                    .distinctBy { station ->
+                        normalizedPlaybackUrl(station)
                     }
-                )
-                .take(safeLimit)
+                    // It can also list the same station more than once at
+                    // different bitrates or alternate stream endpoints.
+                    // Example: "City Latin" appeared twice with normal and
+                    // high-quality URLs. Keep only one exact normalized name.
+                    .distinctBy { station ->
+                        normalizedStationIdentity(station.name)
+                    }
+                    .filter { station ->
+                        val stationWords =
+                            normalizeForMatching(station.name)
+                                .split(' ')
+                                .filter { it.isNotBlank() }
+
+                        val queryWords =
+                            normalizeForMatching(searchText)
+                                .split(' ')
+                                .filter { it.isNotBlank() }
+
+                        queryWords.any { queryWord ->
+                            stationWords.contains(queryWord)
+                        }
+                    }
+                    .sortedWith(
+                        compareByDescending<RadioBrowserStation> { station ->
+                            calculateClientMatchScore(
+                                stationName = station.name,
+                                query = searchText
+                            )
+                        }.thenByDescending { station ->
+                            station.votes
+                        }.thenByDescending { station ->
+                            station.clickCount
+                        }
+                    )
+
+            diversifySisterStations(
+                stations = rankedStations,
+                limit = safeLimit
+            )
         }
     }
     private fun buildSearchUrl(
@@ -204,31 +236,37 @@ class RadioBrowserClient {
         val normalizedQuery =
             normalizeForMatching(query)
 
+        val stationWords =
+            normalizedStationName
+                .split(' ')
+                .filter { it.isNotBlank() }
+
+        val queryWords =
+            normalizedQuery
+                .split(' ')
+                .filter { it.isNotBlank() }
+
         return when {
-            normalizedStationName == normalizedQuery -> 1_000
+            normalizedStationName == normalizedQuery ->
+                1_000
 
             normalizedStationName.startsWith(
-                normalizedQuery
-            ) -> 800
+                "$normalizedQuery "
+            ) ->
+                850
 
-            normalizedStationName.contains(
-                normalizedQuery
-            ) -> 650
+            stationWords.contains(normalizedQuery) ->
+                750
 
-            else -> {
-                val queryWords =
-                    normalizedQuery
-                        .split(' ')
-                        .filter { word ->
-                            word.isNotBlank()
-                        }
+            queryWords.all { word ->
+                stationWords.contains(word)
+            } ->
+                600
 
+            else ->
                 queryWords.count { word ->
-                    normalizedStationName
-                        .split(' ')
-                        .contains(word)
+                    stationWords.contains(word)
                 } * 100
-            }
         }
     }
 
@@ -248,6 +286,138 @@ class RadioBrowserClient {
                 " "
             )
     }
+    /**
+     * Rearranges results so two consecutive stations are not supplied by the
+     * same obvious stream family whenever another choice is available.
+     *
+     * We deliberately rearrange rather than delete every same-provider entry:
+     * one network can operate several genuinely different channels.
+     */
+    private fun diversifySisterStations(
+        stations: List<RadioBrowserStation>,
+        limit: Int
+    ): List<RadioBrowserStation> {
+        if (stations.size <= 1) {
+            return stations.take(limit)
+        }
+
+        val remaining = stations.toMutableList()
+        val diversified = mutableListOf<RadioBrowserStation>()
+        var previousProviderFamily: String? = null
+
+        while (remaining.isNotEmpty() && diversified.size < limit) {
+            val differentFamilyIndex =
+                remaining.indexOfFirst { station ->
+                    providerFamily(station) != previousProviderFamily
+                }
+
+            val selectedIndex =
+                if (differentFamilyIndex >= 0) {
+                    differentFamilyIndex
+                } else {
+                    0
+                }
+
+            val selected = remaining.removeAt(selectedIndex)
+            diversified += selected
+            previousProviderFamily = providerFamily(selected)
+        }
+
+        return diversified
+    }
+
+    private fun normalizedStationIdentity(
+        stationName: String
+    ): String {
+        return normalizeForMatching(stationName)
+    }
+
+    private fun normalizedPlaybackUrl(
+        station: RadioBrowserStation
+    ): String {
+        val playbackUrl =
+            station.resolvedStreamUrl.ifBlank {
+                station.streamUrl
+            }
+
+        return try {
+            val url = URL(playbackUrl)
+            val normalizedPort =
+                when {
+                    url.port == -1 -> ""
+                    url.protocol.equals("http", ignoreCase = true) &&
+                            url.port == 80 -> ""
+                    url.protocol.equals("https", ignoreCase = true) &&
+                            url.port == 443 -> ""
+                    else -> ":${url.port}"
+                }
+
+            val normalizedPath =
+                url.path
+                    .trim()
+                    .trimEnd('/')
+                    .lowercase()
+
+            "${url.protocol.lowercase()}://${url.host.lowercase()}" +
+                    normalizedPort +
+                    normalizedPath
+        } catch (_: Exception) {
+            playbackUrl
+                .trim()
+                .trimEnd('/')
+                .lowercase()
+        }
+    }
+
+    private fun providerFamily(
+        station: RadioBrowserStation
+    ): String {
+        val playbackUrl =
+            station.resolvedStreamUrl.ifBlank {
+                station.streamUrl
+            }
+
+        val host =
+            try {
+                URL(playbackUrl)
+                    .host
+                    .lowercase()
+                    .removePrefix("www.")
+            } catch (_: Exception) {
+                return normalizedPlaybackUrl(station)
+            }
+
+        return when {
+            // The ride log showed several BreakZ and RauteMusik listings
+            // carrying the same synchronized programming.
+            host.contains("breakz") ||
+                    host.contains("rautemusik") ->
+                "breakz-rautemusik"
+
+            else ->
+                registrableHost(host)
+        }
+    }
+
+    private fun registrableHost(
+        host: String
+    ): String {
+        val parts =
+            host
+                .split('.')
+                .filter { part ->
+                    part.isNotBlank()
+                }
+
+        if (parts.size <= 2) {
+            return host
+        }
+
+        return parts
+            .takeLast(2)
+            .joinToString(".")
+    }
+
     private fun executeSearch(
         requestUrl: String
     ): List<RadioBrowserStation> {

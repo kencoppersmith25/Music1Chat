@@ -32,6 +32,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import android.net.Uri
 
 
 @Composable
@@ -50,6 +51,7 @@ fun Content(
     displayedStation: Station?,
     songTitle: String,
     songArtist: String,
+    artworkUri: Uri?,
     displayedStationIndex: Int,
     displayedStationCount: Int,
     categoryIsSearch: Boolean,
@@ -179,6 +181,7 @@ fun Content(
                 stationCountry = displayedStation.country,
                 songTitle = songTitle,
                 songArtist = songArtist,
+                artworkUri = artworkUri,
                 stationNumber = displayedStationIndex + 1,
                 stationCount = displayedStationCount,
                 categoryIsSearch = categoryIsSearch,

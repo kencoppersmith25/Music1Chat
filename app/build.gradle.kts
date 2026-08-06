@@ -67,6 +67,7 @@ dependencies {
     implementation("androidx.media3:media3-session:1.10.1")
     implementation("androidx.media3:media3-cast:1.10.1")
     implementation("androidx.mediarouter:mediarouter:1.8.1")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     testImplementation(libs.junit)
 
     androidTestImplementation(

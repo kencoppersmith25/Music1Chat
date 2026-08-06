@@ -91,6 +91,9 @@ class RadioPlayer(
     var nowPlayingArtist by mutableStateOf("")
         private set
 
+    var nowPlayingArtworkUri by mutableStateOf<Uri?>(null)
+        private set
+
     var nowPlayingText by mutableStateOf("")
         private set
 
@@ -146,6 +149,12 @@ class RadioPlayer(
 
             val title = mediaMetadata.title?.toString()?.trim().orEmpty()
             val artist = mediaMetadata.artist?.toString()?.trim().orEmpty()
+
+            nowPlayingArtworkUri =
+                mediaMetadata.artworkUri
+                    ?: request.station.logoUrl
+                        .takeIf { it.isNotBlank() }
+                        ?.let(Uri::parse)
 
             nowPlayingTitle = title.takeUnless {
                 it.equals(request.station.name, ignoreCase = true)
@@ -263,6 +272,7 @@ class RadioPlayer(
         errorMessage = null
         nowPlayingTitle = ""
         nowPlayingArtist = ""
+        nowPlayingArtworkUri = null
         nowPlayingText = ""
         isPlaying = false
         playbackRequested = true
@@ -538,6 +548,7 @@ class RadioPlayer(
         activeRequest = null
         pendingRequest = null
         errorMessage = null
+        nowPlayingArtworkUri = null
 
         controller?.run {
             stop()

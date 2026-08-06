@@ -241,7 +241,7 @@ fun TopControlBar(
             Alignment.CenterVertically
     ) {
         Text(
-            text = "RadioEasy",
+            text = "2 Button Radio",
             modifier = Modifier.weight(1f),
             color = MaterialTheme.colorScheme.onBackground,
             fontSize = 27.sp,

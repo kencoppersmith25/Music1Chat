@@ -93,6 +93,11 @@ import androidx.compose.foundation.MarqueeDefaults
 import androidx.compose.ui.text.style.TextOverflow
 import com.coppersmith.music1chat.ui.components.NavigationIndicator
 import com.coppersmith.music1chat.ui.components.MiniVuMeter
+import android.net.Uri
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+
+
 @Composable
 fun CategoryCard(
     categoryName: String,
@@ -210,7 +215,6 @@ fun CardTrailingControls(
         }
     }
 }
-
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NowPlayingCard(
@@ -221,6 +225,7 @@ fun NowPlayingCard(
     stationCountry: String,
     songTitle: String,
     songArtist: String,
+    artworkUri: Uri?,
     stationNumber: Int,
     stationCount: Int,
     categoryIsSearch: Boolean,
@@ -256,7 +261,7 @@ fun NowPlayingCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(188.dp),
+            .height(204.dp),
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor =
@@ -268,15 +273,14 @@ fun NowPlayingCard(
                 .fillMaxSize()
                 .padding(
                     start = 16.dp,
-                    end = 3.dp,
+                    end = 10.dp,
                     top = 11.dp,
                     bottom = 11.dp
                 )
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment =
-                    Alignment.Top
+                verticalAlignment = Alignment.Top
             ) {
                 Column(
                     modifier = Modifier
@@ -287,13 +291,19 @@ fun NowPlayingCard(
                         )
                 ) {
                     val hasSongInformation =
-                        songTitle.isNotBlank() || songArtist.isNotBlank()
+                        songTitle.isNotBlank() ||
+                                songArtist.isNotBlank()
 
                     val primaryText =
                         when {
-                            songTitle.isNotBlank() -> songTitle
-                            songArtist.isNotBlank() -> songArtist
-                            else -> stationName
+                            songTitle.isNotBlank() ->
+                                songTitle
+
+                            songArtist.isNotBlank() ->
+                                songArtist
+
+                            else ->
+                                stationName
                         }
 
                     Text(
@@ -326,7 +336,8 @@ fun NowPlayingCard(
                                     MarqueeDefaults.Velocity * 1.55f
                             ),
                             color =
-                                MaterialTheme.colorScheme.onSurfaceVariant,
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
                             fontSize = 19.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1
@@ -343,7 +354,8 @@ fun NowPlayingCard(
                                 if (stationPositionText.isBlank()) {
                                     stationName
                                 } else {
-                                    "$stationName  ($stationPositionText)"
+                                    "$stationName  " +
+                                            "($stationPositionText)"
                                 },
                             modifier = Modifier.basicMarquee(
                                 iterations = Int.MAX_VALUE,
@@ -351,23 +363,26 @@ fun NowPlayingCard(
                                     MarqueeDefaults.Velocity * 1.35f
                             ),
                             color =
-                                MaterialTheme.colorScheme.onSurfaceVariant,
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1
                         )
-                    } else if (stationPositionText.isNotBlank()) {
+                    } else if (
+                        stationPositionText.isNotBlank()
+                    ) {
                         Text(
-                            text = "Station $stationPositionText",
+                            text =
+                                "Station $stationPositionText",
                             color =
-                                MaterialTheme.colorScheme.onSurfaceVariant,
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1
                         )
                     }
-
-
                 }
 
                 Row(
@@ -395,7 +410,8 @@ fun NowPlayingCard(
                                     Icons.Default.Folder,
                                 contentDescription =
                                     "Station actions",
-                                modifier = Modifier.size(28.dp)
+                                modifier =
+                                    Modifier.size(28.dp)
                             )
                         }
 
@@ -438,7 +454,7 @@ fun NowPlayingCard(
             }
 
             Spacer(
-                modifier = Modifier.height(18.dp)
+                modifier = Modifier.height(12.dp)
             )
 
             if (secondaryInformation.isNotBlank()) {
@@ -467,14 +483,27 @@ fun NowPlayingCard(
                 verticalAlignment =
                     Alignment.CenterVertically,
                 horizontalArrangement =
-                    Arrangement.End
+                    Arrangement.SpaceBetween
             ) {
+                if (artworkUri != null) {
+                    AsyncImage(
+                        model = artworkUri,
+                        contentDescription = "Station logo",
+                        modifier = Modifier
+                            .size(58.dp)
+                            .clip(
+                                RoundedCornerShape(10.dp)
+                            ),
+                        contentScale = ContentScale.Fit
+                    )
+                } else {
+                    Spacer(
+                        modifier = Modifier.size(58.dp)
+                    )
+                }
+
                 MiniVuMeter(
                     isPlaying = isPlaying
-                )
-
-                Spacer(
-                    modifier = Modifier.width(10.dp)
                 )
             }
         }
