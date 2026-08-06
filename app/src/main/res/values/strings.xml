@@ -1,3 +1,16 @@
 <resources>
     <string name="app_name">2 Button Radio</string>
+
+    <string-array name="next_category_queries">
+        <item>category</item>
+        <item>next category</item>
+        <item>change category</item>
+        <item>go to the next category</item>
+    </string-array>
+
+    <string-array name="previous_category_queries">
+        <item>previous category</item>
+        <item>back one category</item>
+        <item>go to the previous category</item>
+    </string-array>
 </resources>

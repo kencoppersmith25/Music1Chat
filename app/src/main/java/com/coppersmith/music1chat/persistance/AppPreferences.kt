@@ -35,6 +35,23 @@ class AppPreferences(
             .apply()
     }
 
+    fun loadVoicePreviousMeansNextCategory(): Boolean =
+        preferences.getBoolean(
+            KEY_VOICE_PREVIOUS_MEANS_NEXT_CATEGORY,
+            true        // Default = Next Category
+        )
+
+    fun saveVoicePreviousMeansNextCategory(
+        enabled: Boolean
+    ) {
+        preferences.edit()
+            .putBoolean(
+                KEY_VOICE_PREVIOUS_MEANS_NEXT_CATEGORY,
+                enabled
+            )
+            .apply()
+    }
+
     fun loadCategoryAnnouncementVoiceId(): String? =
         preferences
             .getString(
@@ -772,6 +789,9 @@ class AppPreferences(
     ): String = "station_$stationId"
 
     companion object {
+
+        private const val KEY_VOICE_PREVIOUS_MEANS_NEXT_CATEGORY =
+            "voice_previous_means_next_category"
 
         private const val KEY_ANNOUNCE_CATEGORY_CHANGES =
             "announce_category_changes"

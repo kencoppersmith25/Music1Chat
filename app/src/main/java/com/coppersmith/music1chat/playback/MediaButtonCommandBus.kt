@@ -9,8 +9,10 @@ enum class MediaButtonCommand {
     TOGGLE_PLAYBACK,
     NEXT_STATION,
     PREVIOUS_STATION,
-    NEXT_CATEGORY
+    NEXT_CATEGORY,
+    PREVIOUS_CATEGORY
 }
+
 object MediaButtonCommandBus {
 
     private val mutableCommands =

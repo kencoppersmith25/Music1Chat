@@ -1242,6 +1242,10 @@ fun MainScreen() {
                 MediaButtonCommand.NEXT_CATEGORY -> {
                     changeCategory(direction = 1)
                 }
+
+                MediaButtonCommand.PREVIOUS_CATEGORY -> {
+                    changeCategory(direction = -1)
+                }
             }
         }
     }

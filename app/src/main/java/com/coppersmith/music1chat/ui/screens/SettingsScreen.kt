@@ -2,13 +2,14 @@ package com.coppersmith.music1chat.ui.screens
 
 // Music1Chat coordinated release
 // Date: 2026-07-30
-// Release: 2026-07-30 v01
+// Release: 2026-08-06 v02
 //
 // Settings:
 // - Configures live-search result limit.
 // - Selects any installed English Android voice.
 // - Enables or disables category-change announcements.
-// - Tapping a voice immediately previews and saves it.
+// - Tapping the announcement voice opens the voice picker.
+// - Configures what the spoken Previous Track command does.
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -101,6 +102,14 @@ fun SettingsScreen(
         mutableStateOf(
             appPreferences
                 .loadAnnounceCategoryChanges()
+        )
+    }
+
+    var voicePreviousMeansNextCategory by
+    remember {
+        mutableStateOf(
+            appPreferences
+                .loadVoicePreviousMeansNextCategory()
         )
     }
 
@@ -368,18 +377,60 @@ fun SettingsScreen(
                     modifier = Modifier.height(14.dp)
                 )
 
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                showVoicePicker = true
+                            }
+                            .padding(vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "Category announcement voice",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(
+                        modifier = Modifier.height(3.dp)
+                    )
+
+                    Text(
+                        text = selectedVoiceDescription,
+                        color =
+                            MaterialTheme.colorScheme
+                                .onSurfaceVariant,
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.height(16.dp)
+                )
+
+                HorizontalDivider()
+
+                Spacer(
+                    modifier = Modifier.height(18.dp)
+                )
+
                 Text(
-                    text = "Category announcement voice",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold
+                    text = "Voice Previous Track",
+                    color =
+                        MaterialTheme.colorScheme.primary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
                 )
 
                 Spacer(
-                    modifier = Modifier.height(3.dp)
+                    modifier = Modifier.height(6.dp)
                 )
 
                 Text(
-                    text = selectedVoiceDescription,
+                    text =
+                        "Choose what happens when you say “Hey Google, previous track.”",
                     color =
                         MaterialTheme.colorScheme
                             .onSurfaceVariant,
@@ -391,17 +442,35 @@ fun SettingsScreen(
                     modifier = Modifier.height(8.dp)
                 )
 
-                TextButton(
+                VoiceChoiceRow(
+                    title = "Next Category",
+                    subtitle =
+                        "Recommended. Previous Track advances to the next category.",
+                    selected = voicePreviousMeansNextCategory,
                     onClick = {
-                        showVoicePicker = true
+                        voicePreviousMeansNextCategory = true
+                        appPreferences
+                            .saveVoicePreviousMeansNextCategory(
+                                true
+                            )
                     }
-                ) {
-                    Text(
-                        text = "Choose Voice",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                )
+
+                HorizontalDivider()
+
+                VoiceChoiceRow(
+                    title = "Previous Station",
+                    subtitle =
+                        "Previous Track returns to the previous station.",
+                    selected = !voicePreviousMeansNextCategory,
+                    onClick = {
+                        voicePreviousMeansNextCategory = false
+                        appPreferences
+                            .saveVoicePreviousMeansNextCategory(
+                                false
+                            )
+                    }
+                )
 
                 Spacer(
                     modifier = Modifier.height(8.dp)
