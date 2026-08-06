@@ -2,7 +2,7 @@ package com.coppersmith.music1chat.playback
 
 // Music1Chat coordinated release
 // File: PlaybackService.kt
-// Release: 2026-08-06 v04
+// Release: 2026-08-06 v05
 // Coordinated with RideLogger diagnostics and Assistant transport controls.
 
 import android.content.Intent
@@ -121,13 +121,13 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun seekToPrevious() {
-            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekToPrevious")
-            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
+            RideLogger.log("ASSISTANT_COMMAND command=PREVIOUS_STATION source=seekToPrevious")
+            MediaButtonCommandBus.send(MediaButtonCommand.PREVIOUS_STATION)
         }
 
         override fun seekToPreviousMediaItem() {
-            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekToPreviousMediaItem")
-            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
+            RideLogger.log("ASSISTANT_COMMAND command=PREVIOUS_STATION source=seekToPreviousMediaItem")
+            MediaButtonCommandBus.send(MediaButtonCommand.PREVIOUS_STATION)
         }
     }
 

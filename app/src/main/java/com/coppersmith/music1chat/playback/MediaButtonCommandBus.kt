@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 enum class MediaButtonCommand {
     TOGGLE_PLAYBACK,
     NEXT_STATION,
+    PREVIOUS_STATION,
     NEXT_CATEGORY
 }
-
 object MediaButtonCommandBus {
 
     private val mutableCommands =

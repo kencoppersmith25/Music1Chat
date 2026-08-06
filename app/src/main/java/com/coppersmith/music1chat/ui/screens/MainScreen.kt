@@ -1235,13 +1235,16 @@ fun MainScreen() {
                     moveStation(direction = 1)
                 }
 
+                MediaButtonCommand.PREVIOUS_STATION -> {
+                    moveStation(direction = -1)
+                }
+
                 MediaButtonCommand.NEXT_CATEGORY -> {
                     changeCategory(direction = 1)
                 }
             }
         }
     }
-
 
     DisposableEffect(
         radioPlayer,
