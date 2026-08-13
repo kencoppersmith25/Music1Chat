@@ -414,8 +414,7 @@ fun MainScreen() {
         }
     }
 
-    if (BuildConfig.DEBUG) {
-        LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
+    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
         // Clear the navigation feedback ONLY once the music actually starts playing
         // or if an error message takes its place.
         if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
@@ -423,7 +422,8 @@ fun MainScreen() {
         }
     }
 
-    LaunchedEffect(Unit) {
+    if (BuildConfig.DEBUG) {
+        LaunchedEffect(Unit) {
             RideLogger.startAutomatically(
                 context.applicationContext
             )
