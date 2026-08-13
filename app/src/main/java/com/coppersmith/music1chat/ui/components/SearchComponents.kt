@@ -49,7 +49,9 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.coppersmith.music1chat.R
 import com.coppersmith.music1chat.cast.Music1CastButton
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -60,6 +62,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
@@ -230,48 +233,58 @@ fun GenreSearchBox(
     }
 }
 
+
 @Composable
 fun TopControlBar(
     onSettingsClick: () -> Unit,
     onPowerClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
+    
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment =
-            Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = "2 Button Radio",
+        // Center the logo in the available space
+        Box(
             modifier = Modifier.weight(1f),
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 27.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1
-        )
-
-        IconButton(
-            onClick = onSettingsClick
+            contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Settings",
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(30.dp)
+            Image(
+                // Use app_icon for Dark Mode, and app_icon_light for Light Mode
+                painter = painterResource(id = if (isDark) R.drawable.app_icon else R.drawable.app_icon_light),
+                contentDescription = "No Hands Radio",
+                modifier = Modifier
+                    .height(100.dp) // Reduced from 110.dp
+                    .padding(top = 0.dp, bottom = 2.dp) // Reduced from 4.dp vertical
             )
         }
 
-        Music1CastButton(
-            modifier = Modifier.size(40.dp)
-        )
+        // Action icons on the right
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onSettingsClick) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(30.dp)
+                )
+            }
 
-        IconButton(onClick = onPowerClick) {
-            Icon(
-                imageVector =
-                    Icons.Default.PowerSettingsNew,
-                contentDescription = "Exit",
-                tint = Color(0xFFFF5A5F),
-                modifier = Modifier.size(30.dp)
+            Music1CastButton(
+                modifier = Modifier.size(40.dp)
             )
+
+            IconButton(onClick = onPowerClick) {
+                Icon(
+                    imageVector = Icons.Default.PowerSettingsNew,
+                    contentDescription = "Exit",
+                    tint = Color(0xFFFF5A5F),
+                    modifier = Modifier.size(30.dp)
+                )
+            }
         }
     }
 }
@@ -280,16 +293,9 @@ fun TopControlBar(
 @Composable
 fun SearchChips(
     selectedSearch: String,
-    onSearchSelected: (String) -> Unit
+    onSearchSelected: (String) -> Unit,
+    recentSearches: List<String>
 ) {
-    val searches = listOf(
-        "Classical",
-        "Hawaiian",
-        "Jazz",
-        "Rock",
-        "News"
-    )
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -299,7 +305,7 @@ fun SearchChips(
         horizontalArrangement =
             Arrangement.spacedBy(8.dp)
     ) {
-        searches.forEach { search ->
+        recentSearches.forEach { search ->
             FilterChip(
                 selected =
                     selectedSearch.equals(

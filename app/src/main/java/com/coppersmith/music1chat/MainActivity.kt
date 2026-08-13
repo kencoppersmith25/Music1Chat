@@ -8,11 +8,16 @@ import com.coppersmith.music1chat.ui.theme.Music1ChatTheme
 import android.os.PowerManager
 import androidx.lifecycle.Lifecycle
 import com.coppersmith.music1chat.ads.AdManager
+import com.google.android.gms.ads.MobileAds
 
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize Mobile Ads SDK
+        MobileAds.initialize(this) {}
+
         val powerManager =
             getSystemService(PowerManager::class.java)
 

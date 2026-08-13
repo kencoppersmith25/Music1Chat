@@ -229,8 +229,8 @@ fun StationListScreen(
     ) {
         Surface(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .fillMaxHeight(0.86f),
+                .fillMaxWidth(0.78f)
+                .fillMaxHeight(0.75f),
             shape = RoundedCornerShape(22.dp),
             tonalElevation = 8.dp,
             shadowElevation = 12.dp,

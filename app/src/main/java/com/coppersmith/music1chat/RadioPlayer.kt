@@ -306,9 +306,15 @@ class RadioPlayer(
         val station = request.station
         val playbackUrl = preferredPlaybackUrl(station)
 
+        // Build a detailed subtitle for the TV receiver
+        val detailedSubtitle = listOf(station.genre, station.city, station.country)
+            .filter { it.isNotBlank() }
+            .joinToString(" • ")
+
         val mediaMetadata = MediaMetadata.Builder()
             .setTitle(station.name)
-            .setSubtitle(station.genre)
+            .setSubtitle(detailedSubtitle)
+            .setArtist(station.callLetters)
             .setGenre(station.genre)
             .setStation(station.name)
             .setArtworkUri(

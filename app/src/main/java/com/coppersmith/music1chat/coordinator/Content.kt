@@ -35,6 +35,8 @@ import androidx.compose.runtime.setValue
 import android.net.Uri
 
 
+import com.coppersmith.music1chat.ui.components.AdBanner
+
 @Composable
 fun Content(
     showSettings: Boolean,
@@ -85,7 +87,8 @@ fun Content(
     onPreviousStationClick: () -> Unit,
     onPlayPauseClick: () -> Unit,
     onNextStationClick: () -> Unit,
-    onNextCategoryClick: () -> Unit
+    onNextCategoryClick: () -> Unit,
+    recentSearches: List<String>
 ) {
     Column(
         modifier = Modifier
@@ -94,7 +97,7 @@ fun Content(
             .padding(
                 start = 14.dp,
                 end = 14.dp,
-                top = 10.dp,
+                top = 0.dp, // Reduced from 10.dp
                 bottom = 12.dp
             ),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -128,7 +131,7 @@ fun Content(
         }
 
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(4.dp)) // Reduced from 8.dp
 
         GenreSearchBox(
             searchText = searchText,
@@ -141,15 +144,16 @@ fun Content(
             onGenreSelected = onSearchSuggestionSelected
         )
 
-        Spacer(modifier = Modifier.height(7.dp))
+        Spacer(modifier = Modifier.height(4.dp)) // Reduced from 7.dp
 
         SearchChips(
             selectedSearch = effectiveSearchQuery,
-            onSearchSelected = onSearchChipSelected
+            onSearchSelected = onSearchChipSelected,
+            recentSearches = recentSearches
         )
 
         searchFeedbackMessage?.let { message ->
-            Spacer(modifier = Modifier.height(5.dp))
+            Spacer(modifier = Modifier.height(2.dp)) // Reduced from 5.dp
             Text(
                 text = message,
                 modifier = Modifier.fillMaxWidth(),
@@ -159,7 +163,7 @@ fun Content(
             )
         }
 
-        Spacer(modifier = Modifier.height(13.dp))
+        Spacer(modifier = Modifier.height(4.dp)) // Reduced from 8.dp
 
         CategoryCard(
             categoryName = effectiveCategoryDisplayName,
@@ -170,7 +174,7 @@ fun Content(
             onDeleteClick = onCategoryDeleteClick
         )
 
-        Spacer(modifier = Modifier.height(13.dp))
+        Spacer(modifier = Modifier.height(4.dp)) // Reduced from 8.dp
 
         if (displayedStation != null) {
             NowPlayingCard(
@@ -198,16 +202,16 @@ fun Content(
                     when {
                         !startupRestoreComplete -> ""
                         !libraryHasCategories ->
-                            "No categories are available. Search to add a category and stations."
+                            "No categories yet. Type in the Search box above to find stations and get started!"
                         else -> "No stations are available."
                     },
-                color = Color.Black,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 17.sp,
                 textAlign = TextAlign.Center
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(6.dp)) // Reduced from 12.dp
 
         PlaybackControls(
             isPlaying = playbackRequested,
@@ -219,15 +223,16 @@ fun Content(
         )
 
         visibleStatusMessage?.let { message ->
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp)) // Reduced from 8.dp
             Text(
                 text = message,
-                color = Color.Black,
+                color = MaterialTheme.colorScheme.onBackground,
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center
             )
         }
 
         Spacer(modifier = Modifier.weight(1f))
+        AdBanner()
     }
 }

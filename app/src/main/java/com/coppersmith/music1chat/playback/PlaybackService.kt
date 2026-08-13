@@ -260,13 +260,18 @@ class PlaybackService : MediaSessionService() {
                 if (existingMetadata.title?.toString() == title && existingMetadata.artist?.toString() == artist) continue
 
                 val updatedMetadata = existingMetadata.buildUpon()
-                    .setTitle(title)
-                    .setArtist(artist)
-                    .setStation(existingMetadata.station ?: existingMetadata.title)
-                    .setArtworkUri(existingMetadata.artworkUri)
-                    .build()
+                        .setTitle(title)
+                        .setArtist(artist)
+                        .setSubtitle(existingMetadata.station?.toString() ?: existingMetadata.title?.toString())
+                        .setStation(existingMetadata.station ?: existingMetadata.title)
+                        .setArtworkUri(existingMetadata.artworkUri)
+                        .build()
 
-                val updatedItem = currentItem.buildUpon().setMediaMetadata(updatedMetadata).build()
+                val updatedItem = currentItem.buildUpon()
+                        .setMediaMetadata(updatedMetadata)
+                        .build()
+                
+                // Force an update to the current player (TV or Phone)
                 currentPlayer.replaceMediaItem(currentPlayer.currentMediaItemIndex, updatedItem)
             }
         }
@@ -415,8 +420,10 @@ class PlaybackService : MediaSessionService() {
             for (i in 0 until sourcePlayer.mediaItemCount) {
                 val item = sourcePlayer.getMediaItemAt(i)
                 val uri = item.localConfiguration?.uri?.toString().orEmpty()
+                
+                // Ensure we carry over the full metadata (title, subtitle, artist, etc)
+                // so the TV receiver can display and scroll them correctly.
                 val metadata = item.mediaMetadata.buildUpon()
-                    .setTitle(item.mediaMetadata.title ?: item.mediaMetadata.station ?: "Music1 Chat")
                     .setIsPlayable(true)
                     .build()
 
@@ -435,7 +442,7 @@ class PlaybackService : MediaSessionService() {
             cleanUrl.contains(".m3u8") || cleanUrl.contains("m3u") -> MimeTypes.APPLICATION_M3U8
             cleanUrl.contains(".mp3") -> MimeTypes.AUDIO_MPEG
             cleanUrl.contains(".aac") -> MimeTypes.AUDIO_AAC
-            else -> MimeTypes.AUDIO_MPEG
+            else -> MimeTypes.AUDIO_MPEG // Default to MPEG
         }
     }
 

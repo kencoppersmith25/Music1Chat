@@ -261,7 +261,7 @@ fun NowPlayingCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(204.dp),
+            .height(176.dp), // Reduced from 188dp to raise VU meter row
         shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor =
@@ -275,7 +275,7 @@ fun NowPlayingCard(
                     start = 16.dp,
                     end = 10.dp,
                     top = 11.dp,
-                    bottom = 11.dp
+                    bottom = 4.dp // Reduced from 11.dp to raise bottom row
                 )
         ) {
             Row(
@@ -454,7 +454,7 @@ fun NowPlayingCard(
             }
 
             Spacer(
-                modifier = Modifier.height(12.dp)
+                modifier = Modifier.height(8.dp) // Reduced from 12.dp
             )
 
             if (secondaryInformation.isNotBlank()) {

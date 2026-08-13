@@ -15,6 +15,7 @@ import com.coppersmith.music1chat.search.StationSearchEngine
 import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
+import android.util.Log
 
 data class CoordinatedSearchResult(
     val query: String,
@@ -74,7 +75,8 @@ class Search(
         cachedSessions: Map<String, PlaybackSessionState>,
         anchorCategoryId: Long?,
         startPlayback: Boolean,
-        sessionController: PlaybackSessionController
+        sessionController: PlaybackSessionController,
+        isStartup: Boolean = false
     ): SearchWorkflowOutcome {
         val searchQuery = query.trim()
         val coordinatedResult = search(
@@ -84,21 +86,28 @@ class Search(
         )
 
         val savedSearch = savedSearchFor(savedSearches, searchQuery)
+        val previousCount = savedSearch?.lastResultCount ?: 0
 
-        if (coordinatedResult.stations.isEmpty()) {
+        // SAFETY SHIELD: If a refresh returns significantly fewer results than before,
+        // it's likely an API hiccup. Use the cache instead of corrupting the category.
+        val isSuspectShrink = coordinatedResult.stations.size < (previousCount / 2) && previousCount > 10
+        
+        if (coordinatedResult.stations.isEmpty() || isSuspectShrink) {
             val cachedSearch =
                 cachedSessions[normalizedKey(searchQuery)]
                     ?.takeIf { state -> state.hasStations }
-                    ?: return SearchWorkflowOutcome.Empty
+                    ?: if (coordinatedResult.stations.isEmpty()) return SearchWorkflowOutcome.Empty else null
 
-            return SearchWorkflowOutcome.CachedFallback(
-                state = sessionController.showSearch(
-                    query = cachedSearch.categoryName,
-                    stations = cachedSearch.stations,
-                    preferredStationId = cachedSearch.currentStation?.id,
-                    startPlayback = startPlayback
+            if (cachedSearch != null) {
+                return SearchWorkflowOutcome.CachedFallback(
+                    state = sessionController.showSearch(
+                        query = cachedSearch.categoryName,
+                        stations = cachedSearch.stations,
+                        preferredStationId = cachedSearch.currentStation?.id,
+                        startPlayback = startPlayback
+                    )
                 )
-            )
+            }
         }
 
         val newState =

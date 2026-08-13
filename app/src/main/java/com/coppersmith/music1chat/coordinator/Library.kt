@@ -39,6 +39,26 @@ class Library(
                         membershipRepository = repository.memberships
                     )
                 }
+
+                // SNEAKY CLEANUP: Purge any static categories that have zero stations.
+                // This prevents "ghost" categories from cluttering the library if a 
+                // deletion didn't complete or was interrupted in a previous build.
+                val emptyCategories = repository.categories.getAll().filter { category ->
+                    repository.memberships.getStationsForCategory(category.id).isEmpty()
+                }
+
+                if (emptyCategories.isNotEmpty()) {
+                    emptyCategories.forEach { empty ->
+                        repository.memberships.removeCategory(empty.id)
+                        repository.categories.remove(empty.id)
+                    }
+
+                    preferences.savePermanentLibrary(
+                        categoryRepository = repository.categories,
+                        stationRepository = repository.stations,
+                        membershipRepository = repository.memberships
+                    )
+                }
             }
 
         val repositoryCategories =

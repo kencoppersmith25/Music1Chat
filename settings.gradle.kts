@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "2 Button Radio"
+rootProject.name = "Hands Free Radio"
 include(":app")
  

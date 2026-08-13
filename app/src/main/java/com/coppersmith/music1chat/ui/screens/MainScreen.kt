@@ -67,6 +67,7 @@ import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.ui.components.CategoryPicker
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.coppersmith.music1chat.BuildConfig
 
@@ -322,6 +323,15 @@ fun MainScreen() {
     val displayedStationCount =
         sessionState.stationCount
 
+    val recentSearchQueries = remember(savedSearchCategories) {
+        val defaultQueries = listOf("Classical", "Hawaiian", "Jazz", "Rock", "News")
+        val savedQueries = savedSearchCategories.reversed().map { it.query }
+        
+        (savedQueries + defaultQueries)
+            .distinctBy { it.lowercase() }
+            .take(50)
+    }
+
     val isPlaying =
         radioPlayer.isPlaying
 
@@ -405,7 +415,15 @@ fun MainScreen() {
     }
 
     if (BuildConfig.DEBUG) {
-        LaunchedEffect(Unit) {
+        LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
+        // Clear the navigation feedback ONLY once the music actually starts playing
+        // or if an error message takes its place.
+        if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
+            navigationStatusMessage = null
+        }
+    }
+
+    LaunchedEffect(Unit) {
             RideLogger.startAutomatically(
                 context.applicationContext
             )
@@ -496,7 +514,8 @@ fun MainScreen() {
             wasPlaying = wasPlaying,
             savedSearches = savedSearchCategories,
             activeSearchQuery = activeSearchQuery,
-            searchAnchorCategoryId = searchAnchorCategoryId
+            searchAnchorCategoryId = searchAnchorCategoryId,
+            promoteToFront = false // Do not reshuffle chips during simple navigation
         )
 
         replaceSavedSearches(result.savedSearches)
@@ -510,7 +529,7 @@ fun MainScreen() {
     }
 
     lateinit var runSearchAction:
-                (String, Boolean, Boolean, (() -> Unit)?) -> Unit
+                (String, Boolean, Boolean, Boolean, (() -> Unit)?) -> Unit
 
     fun restoreSearch(
         query: String,
@@ -528,13 +547,13 @@ fun MainScreen() {
                 query,
                 startPlayback,
                 true,
+                false,
                 onComplete
             )
             return
         }
 
         publishSession(restoredState)
-        navigationStatusMessage = null
 
         saveCurrentState(
             state = restoredState,
@@ -560,7 +579,6 @@ fun MainScreen() {
         )
 
         publishSession(newState)
-        navigationStatusMessage = null
 
         saveCurrentState(
             state = newState,
@@ -582,6 +600,8 @@ fun MainScreen() {
                     "beforeCategory='${beforeState.categoryDisplayName}' " +
                     "beforeStation='${beforeState.currentStation?.name.orEmpty()}'"
         )
+
+        navigationStatusMessage = if (direction > 0) "Finding next category…" else "Finding previous category…"
 
         val navigationRequest = session.requestCategoryNavigation(
             direction = direction,
@@ -682,14 +702,15 @@ fun MainScreen() {
     fun moveStation(
         direction: Int
     ) {
+        navigationStatusMessage = if (direction > 0) "Finding next station…" else "Finding previous station…"
         val result = playback.moveStation(direction)
 
         if (!result.changed) {
+            navigationStatusMessage = null
             return
         }
 
         publishSession(result.state)
-        navigationStatusMessage = null
 
         saveCurrentState(
             state = result.state,
@@ -735,6 +756,7 @@ fun MainScreen() {
         query: String,
         startPlayback: Boolean,
         preserveAnchor: Boolean,
+        isStartup: Boolean = false,
         onComplete: (() -> Unit)? = null
     ) {
         val searchQuery = query.trim()
@@ -757,7 +779,7 @@ fun MainScreen() {
         latestSearchRequest++
 
         val thisSearchRequest = latestSearchRequest
-        searchFeedbackMessage = "Searching for “$searchQuery”…"
+        searchFeedbackMessage = if (isStartup) null else "Searching for “$searchQuery”…"
 
         coroutineScope.launch {
             try {
@@ -770,7 +792,8 @@ fun MainScreen() {
                         cachedSessions = searchSessionStates,
                         anchorCategoryId = searchAnchorCategoryId,
                         startPlayback = startPlayback,
-                        sessionController = sessionController
+                        sessionController = sessionController,
+                        isStartup = isStartup
                     )
 
                 if (thisSearchRequest != latestSearchRequest) {
@@ -779,14 +802,6 @@ fun MainScreen() {
 
                 when (outcome) {
                     is SearchWorkflowOutcome.Success -> {
-                        Log.d(
-                            "KenCheck",
-                            "Search submitted='$searchQuery', " +
-                                    "local=${outcome.localCount}, " +
-                                    "live=${outcome.liveCount}, " +
-                                    "results=${outcome.state.stationCount}"
-                        )
-
                         radioPlayer.stop()
                         publishSession(outcome.state)
                         replaceSavedSearches(
@@ -807,8 +822,10 @@ fun MainScreen() {
                     is SearchWorkflowOutcome.CachedFallback -> {
                         publishSession(outcome.state)
                         activeSearchQuery = searchQuery
-                        searchFeedbackMessage =
-                            "Search refresh failed. Showing the previous results."
+                        if (!isStartup) {
+                            searchFeedbackMessage =
+                                "Search refresh failed. Showing the previous results."
+                        }
 
                         if (startPlayback) {
                             playCurrentSessionStation(outcome.state)
@@ -816,8 +833,10 @@ fun MainScreen() {
                     }
 
                     SearchWorkflowOutcome.Empty -> {
-                        searchFeedbackMessage =
-                            "No stations found for “$searchQuery”."
+                        if (!isStartup) {
+                            searchFeedbackMessage =
+                                "No stations found for “$searchQuery”."
+                        }
                     }
                 }
             } finally {
@@ -880,12 +899,14 @@ fun MainScreen() {
     runSearchAction = { query,
                         startPlayback,
                         preserveAnchor,
+                        isStartup,
                         onComplete ->
 
         runSearch(
             query = query,
             startPlayback = startPlayback,
             preserveAnchor = preserveAnchor,
+            isStartup = isStartup,
             onComplete = onComplete
         )
     }
@@ -945,6 +966,7 @@ fun MainScreen() {
                     query,
                     false,
                     true,
+                    false,
                     null
                 )
             }
@@ -1052,7 +1074,7 @@ fun MainScreen() {
 
                 selectCategory(
                     category = fallbackPermanentCategory,
-                    startPlayback = false
+                    startPlayback = wasPlayingBeforeDelete
                 )
 
                 showCategoryList = false
@@ -1080,7 +1102,7 @@ fun MainScreen() {
 
                 restoreSearch(
                     query = fallbackSearch.query,
-                    startPlayback = false,
+                    startPlayback = wasPlayingBeforeDelete,
                     onComplete = {
                         showCategoryList = false
                         stationListCategoryKey = null
@@ -1160,21 +1182,25 @@ fun MainScreen() {
                 wasPlaying = radioPlayer.isPlaying
             )
 
-        result.refreshedState?.let { refreshedState ->
-            publishSession(refreshedState)
-            saveCurrentState(
-                state = refreshedState,
-                wasPlaying = result.shouldContinuePlaying
-            )
+        if (result.isCategoryEmpty) {
+            deleteCategory("category:$categoryId")
+        } else {
+            result.refreshedState?.let { refreshedState ->
+                publishSession(refreshedState)
+                saveCurrentState(
+                    state = refreshedState,
+                    wasPlaying = result.shouldContinuePlaying
+                )
 
-            when {
-                result.shouldStopPlayback -> {
-                    radioPlayer.stop()
-                    navigationStatusMessage = result.statusMessage
-                }
+                when {
+                    result.shouldStopPlayback -> {
+                        radioPlayer.stop()
+                        navigationStatusMessage = result.statusMessage
+                    }
 
-                result.shouldStartPlayback -> {
-                    playCurrentSessionStation(refreshedState)
+                    result.shouldStartPlayback -> {
+                        playCurrentSessionStation(refreshedState)
+                    }
                 }
             }
         }
@@ -1184,7 +1210,28 @@ fun MainScreen() {
         stationStateVersion++
     }
 
+    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
+        // Clear the navigation feedback ONLY once the music actually starts playing
+        // or if an error message takes its place.
+        if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
+            navigationStatusMessage = null
+        }
+    }
+
     LaunchedEffect(Unit) {
+        // Wait for the UI to be fully interactive before background work
+        delay(1500)
+
+        // Pre-validate navigation searches one-by-one to prevent startup freeze
+        savedSearchCategories
+            .filter { it.navigationEnabled }
+            .forEach { saved ->
+                if (saved.query != initiallyCurrentSearch?.query) {
+                    prefetchSearch(saved.query)
+                    delay(500) // Give each search a bit of breathing room
+                }
+            }
+
         if (
             initiallyCurrentSearch != null &&
             initiallyCurrentSearch.query.isNotBlank()
@@ -1193,6 +1240,7 @@ fun MainScreen() {
                 query = initiallyCurrentSearch.query,
                 startPlayback = savedPlaybackState.wasPlaying,
                 preserveAnchor = true,
+                isStartup = true,
                 onComplete = {
                     startupRestoreComplete = true
                 }
@@ -1211,6 +1259,14 @@ fun MainScreen() {
             }
 
             startupRestoreComplete = true
+        }
+    }
+
+    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
+        // Clear the navigation feedback ONLY once the music actually starts playing
+        // or if an error message takes its place.
+        if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
+            navigationStatusMessage = null
         }
     }
 
@@ -1754,7 +1810,7 @@ fun MainScreen() {
                     } else {
                         navigationStatusMessage =
                             if (!libraryHasCategories) {
-                                "No categories are available. Search to add a category and stations."
+                                "No categories yet. Type in the Search box above to find stations and get started!"
                             } else {
                                 "No stations are available."
                             }
@@ -1765,7 +1821,8 @@ fun MainScreen() {
                 },
                 onNextCategoryClick = {
                     changeCategory(direction = 1)
-                }
+                },
+                recentSearches = recentSearchQueries
             )
         }
 
@@ -1776,7 +1833,14 @@ fun MainScreen() {
             CategoryPicker(
                 title = destinationCategoryPickerTitle,
                 searchText = destinationCategorySearchText,
-                categories = musicRepository.categories.getAll(),
+                categories = musicRepository.categories.getAll().filter { category ->
+                    // BUG FIX: Hide the current category from the "Save/Move" list
+                    // If the session is a SEARCH, we allow all categories.
+                    // If it's a static CATEGORY, we hide that specific ID.
+                    val isSearch = sessionStateRef.value.isSearch
+                    val currentId = sessionStateRef.value.categoryId
+                    isSearch || category.id != currentId
+                },
                 suggestedCategoryNames = genres,
                 stationCountForCategory = { category ->
                     membershipRepository

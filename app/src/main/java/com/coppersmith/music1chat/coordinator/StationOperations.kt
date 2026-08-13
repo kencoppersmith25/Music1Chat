@@ -93,16 +93,22 @@ class StationOperations(
         val remainingStations =
             memberships.getStationsForCategory(categoryId)
 
+        val isCategoryEmpty = remainingStations.isEmpty()
+
         if (
             currentState.isSearch ||
             currentState.categoryId != categoryId
         ) {
-            return StationDeletionResult()
+            return StationDeletionResult(
+                isCategoryEmpty = isCategoryEmpty
+            )
         }
 
         val category =
             musicRepository.categories.getById(categoryId)
-                ?: return StationDeletionResult()
+                ?: return StationDeletionResult(
+                    isCategoryEmpty = isCategoryEmpty
+                )
 
         val preferredStation =
             if (deletingCurrentStation) {
@@ -134,11 +140,12 @@ class StationOperations(
         return StationDeletionResult(
             refreshedState = refreshedState,
             shouldContinuePlaying = shouldContinuePlaying,
-            shouldStopPlayback = remainingStations.isEmpty(),
+            shouldStopPlayback = isCategoryEmpty,
             shouldStartPlayback =
                 deletingCurrentStation && shouldContinuePlaying,
+            isCategoryEmpty = isCategoryEmpty,
             statusMessage =
-                if (remainingStations.isEmpty()) {
+                if (isCategoryEmpty) {
                     "No stations remain in ${category.name}."
                 } else {
                     null
@@ -160,5 +167,6 @@ data class StationDeletionResult(
     val shouldContinuePlaying: Boolean = false,
     val shouldStopPlayback: Boolean = false,
     val shouldStartPlayback: Boolean = false,
+    val isCategoryEmpty: Boolean = false,
     val statusMessage: String? = null
 )

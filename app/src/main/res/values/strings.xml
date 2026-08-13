@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">2 Button Radio</string>
+    <string name="app_name">No Hands Radio</string>
 
     <string-array name="next_category_queries">
         <item>category</item>

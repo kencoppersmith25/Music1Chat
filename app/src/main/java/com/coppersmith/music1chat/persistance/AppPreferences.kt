@@ -593,46 +593,54 @@ class AppPreferences(
     }
 
     fun upsertSearchCategory(
-        category: SavedSearchCategory
+        category: SavedSearchCategory,
+        promoteToFront: Boolean = true
     ): List<SavedSearchCategory> {
-        val current = loadSearchCategories().toMutableList()
-        val matchIndex = current.indexOfFirst {
-            it.query.equals(
-                category.query,
-                ignoreCase = true
-            )
+        val currentList = loadSearchCategories()
+        
+        // Create a new mutable list to avoid race conditions during modification
+        val updatedList = currentList.toMutableList()
+        
+        // Find existing entry
+        val existingIndex = updatedList.indexOfFirst { 
+            it.query.equals(category.query, ignoreCase = true) 
         }
 
-        val next =
-            category.copy(
-                query = category.query.trim(),
-                sortOrder =
-                    if (matchIndex >= 0) {
-                        current[matchIndex].sortOrder
-                    } else {
-                        current.size
-                    }
-            )
+        val nextEntry = category.copy(
+            query = category.query.trim(),
+            // If promoting, it goes to the end (which UI shows as start)
+            // If not, it keeps its old order or goes to the end if new
+            sortOrder = if (promoteToFront) {
+                updatedList.size 
+            } else {
+                if (existingIndex >= 0) updatedList[existingIndex].sortOrder else updatedList.size
+            }
+        )
 
-        if (category.isCurrent) {
-            for (index in current.indices) {
-                current[index] =
-                    current[index].copy(isCurrent = false)
+        if (nextEntry.isCurrent) {
+            // Ensure only one is marked as current
+            for (i in updatedList.indices) {
+                updatedList[i] = updatedList[i].copy(isCurrent = false)
             }
         }
 
-        if (matchIndex >= 0) {
-            current[matchIndex] = next
+        if (existingIndex >= 0) {
+            if (promoteToFront) {
+                updatedList.removeAt(existingIndex)
+                updatedList.add(nextEntry)
+            } else {
+                updatedList[existingIndex] = nextEntry
+            }
         } else {
-            current.add(next)
+            updatedList.add(nextEntry)
         }
 
-        val normalized =
-            current
-                .sortedBy { it.sortOrder }
-                .mapIndexed { index, item ->
-                    item.copy(sortOrder = index)
-                }
+        // Final normalization of sort orders to ensure no gaps or overlaps
+        val normalized = updatedList
+            .sortedBy { it.sortOrder }
+            .mapIndexed { index, item ->
+                item.copy(sortOrder = index)
+            }
 
         saveSearchCategories(normalized)
         return normalized

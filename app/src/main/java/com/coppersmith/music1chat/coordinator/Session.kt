@@ -33,7 +33,8 @@ class Session(
         wasPlaying: Boolean,
         savedSearches: List<SavedSearchCategory>,
         activeSearchQuery: String?,
-        searchAnchorCategoryId: Long?
+        searchAnchorCategoryId: Long?,
+        promoteToFront: Boolean = true
     ): SessionSaveResult {
         if (state.isSearch) {
             preferences.saveWasPlaying(wasPlaying)
@@ -53,25 +54,28 @@ class Session(
                 it.query.equals(query, ignoreCase = true)
             }
 
-            val updated = preferences.upsertSearchCategory(
-                SavedSearchCategory(
-                    query = query,
-                    anchorCategoryId =
-                        existing?.anchorCategoryId
-                            ?: searchAnchorCategoryId,
-                    lastResultCount =
-                        state.stationCount.takeIf { it > 0 }
-                            ?: existing?.lastResultCount
-                            ?: 0,
-                    isCurrent = true,
-                    currentStationId = state.currentStation?.id,
-                    currentIndex = state.safeCurrentIndex,
-                    navigationEnabled =
-                        existing?.navigationEnabled ?: true,
-                    sortOrder =
-                        existing?.sortOrder ?: savedSearches.size
-                )
+            val searchToSave = SavedSearchCategory(
+                query = query,
+                anchorCategoryId =
+                    existing?.anchorCategoryId
+                        ?: searchAnchorCategoryId,
+                lastResultCount =
+                    state.stationCount.takeIf { it > 0 }
+                        ?: existing?.lastResultCount
+                        ?: 0,
+                isCurrent = true,
+                currentStationId = state.currentStation?.id,
+                currentIndex = state.safeCurrentIndex,
+                navigationEnabled =
+                    existing?.navigationEnabled ?: true,
+                sortOrder = existing?.sortOrder ?: savedSearches.size
             )
+
+            val updated = if (promoteToFront) {
+                preferences.upsertSearchCategory(searchToSave, true)
+            } else {
+                preferences.upsertSearchCategory(searchToSave, false)
+            }
 
             return SessionSaveResult(
                 savedSearches = sanitize(updated),
@@ -114,17 +118,19 @@ class Session(
         category: Category,
         preferredStationId: Long? = null,
         startPlayback: Boolean = true
-    ): PlaybackSessionState =
-        sessionController.showCategory(
+    ): PlaybackSessionState {
+        val stations =
+            memberships.getStationsForCategory(category.id)
+                .filter { !it.failedThisSession }
+
+        return sessionController.showCategory(
             categoryId = category.id,
             categoryName = category.name,
-            stations =
-                memberships.getNavigationStationsForCategory(
-                    category.id
-                ),
+            stations = stations,
             preferredStationId = preferredStationId,
             startPlayback = startPlayback
         )
+    }
 
     fun requestCategoryNavigation(
         direction: Int,
