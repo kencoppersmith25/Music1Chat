@@ -3,42 +3,28 @@ import Combine
 
 @MainActor
 final class MusicLibraryViewModel: ObservableObject {
-    @Published var stations: [Station] {
-        didSet { persistIfReady() }
-    }
-    @Published var categories: [Category] {
-        didSet { persistIfReady() }
-    }
-
-    private struct LibrarySnapshot: Codable {
-        let stations: [Station]
-        let categories: [Category]
-    }
+    @Published private(set) var categories: [Category] = []
+    @Published private(set) var stations: [Station] = []
+    @Published private(set) var persistenceReady = false
 
     private let persistenceKey = "NoHandsRadio.Library.v1"
-    private var persistenceReady = false
+    private var isRestoring = false
 
-    init(
-        stations: [Station] = [],
-        categories: [Category] = []
-    ) {
-        let shouldRestorePersistedLibrary =
-            stations.isEmpty && categories.isEmpty
+    init() {
+        restoreLibrary()
 
-        if shouldRestorePersistedLibrary,
-           let data = UserDefaults.standard.data(forKey: persistenceKey),
-           let snapshot = try? JSONDecoder().decode(LibrarySnapshot.self, from: data) {
-            self.stations = snapshot.stations
-            self.categories = snapshot.categories
-        } else {
-            self.stations = stations
-            self.categories = categories
-        }
-
-        removeLegacySampleFavoritesIfPresent()
-
-        // Ensure "Reliable Stations" exists on first run
-        if categories.isEmpty && stations.isEmpty {
+        // FORCE UPGRADE "Reliable Stations" to Music-only version
+        let reliableName = "Reliable Stations"
+        if let existingIdx = categories.firstIndex(where: { $0.name == reliableName }) {
+            let oldStations = stations.filter { station in
+                station.categoryIDs.contains(categories[existingIdx].id)
+            }
+            // If the old BBC talk station is found, we swap the whole set
+            if oldStations.contains(where: { $0.name.contains("BBC") }) {
+                deleteCategory(categories[existingIdx])
+                createReliableStarterPack()
+            }
+        } else if categories.isEmpty {
             createReliableStarterPack()
         }
 
@@ -47,169 +33,124 @@ final class MusicLibraryViewModel: ObservableObject {
     }
 
     private func createReliableStarterPack() {
-        let starterStations = [
-            Station(name: "Classical King FM", streamURL: "https://kingfm.streamguys1.com/king-fm-mp3", artworkURL: "https://www.king.org/wp-content/uploads/2019/12/KINGFM_Logos_Square_White_RGB-1.png"),
-            Station(name: "Jazz24", streamURL: "https://kexp-jazz24.streamguys1.com/jazz24.mp3", artworkURL: "https://vignette.wikia.nocookie.net/logopedia/images/4/4e/Jazz24_logo.png"),
-            Station(name: "BBC World Service", streamURL: "https://stream.live.vc.bbcmedia.co.uk/bbc_world_service", artworkURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/BBC_World_Service_logo.svg/1200px-BBC_World_Service_logo.svg.png"),
+        let musicStations = [
+            Station(name: "Jazz24", streamURL: "https://kexp-jazz24.streamguys1.com/jazz24.mp3", artworkURL: "https://www.jazz24.org/wp-content/themes/jazz24/images/jazz24-logo-og.png"),
             Station(name: "SomaFM Groove Salad", streamURL: "https://ice1.somafm.com/groovesalad-256-mp3", artworkURL: "https://somafm.com/img/gs256.png"),
-            Station(name: "Radio Swiss Classic", streamURL: "https://stream.srg-ssr.ch/m/rsc_de/mp3_128", artworkURL: "https://www.radioswissclassic.ch/images/rsc_logo_square.png")
+            Station(name: "Planet Rock", streamURL: "https://icecast.bauermedia.co.uk/planetrock.mp3", artworkURL: "https://upload.wikimedia.org/wikipedia/en/2/23/Planet_Rock_Logo.png"),
+            Station(name: "HITS 80s", streamURL: "https://streaming.radio.co/s514757c93/listen", artworkURL: "https://az827626.vo.msecnd.net/cdn/stationlogos/hits80s.png"),
+            Station(name: "Swiss Classic", streamURL: "https://stream.srg-ssr.ch/m/rsc_de/mp3_128", artworkURL: "https://www.radioswissclassic.ch/images/rsc_logo_square.png")
         ]
 
-        self.stations = starterStations
-        let reliableCategory = Category(name: "Reliable Stations", stationIDs: starterStations.map { $0.id })
-        self.categories = [reliableCategory]
+        self.stations.append(contentsOf: musicStations)
+        let reliableCategory = Category(name: "Reliable Stations", stationIDs: musicStations.map { $0.id })
+        self.categories.append(reliableCategory)
 
-        // Ensure stations are linked to the category
         for i in self.stations.indices {
-            self.stations[i].categoryIDs = [reliableCategory.id]
+            if musicStations.contains(where: { $0.id == self.stations[i].id }) {
+                self.stations[i].categoryIDs = [reliableCategory.id]
+            }
         }
     }
 
     func stations(in category: Category) -> [Station] {
-        category.stationIDs.compactMap { stationID in
-            stations.first { $0.id == stationID }
-        }
+        stations.filter { category.stationIDs.contains($0.id) }
     }
 
-    func category(for station: Station) -> [Category] {
-        categories.filter { station.categoryIDs.contains($0.id) }
+    func moveStation(in category: Category, stationID: UUID, toIndex: Int) {
+        guard let cIdx = categories.firstIndex(where: { $0.id == category.id }) else { return }
+
+        var ids = categories[cIdx].stationIDs
+        guard let fromIndex = ids.firstIndex(of: stationID) else { return }
+
+        ids.remove(at: fromIndex)
+        let safeToIndex = min(max(toIndex, 0), ids.count)
+        ids.insert(stationID, at: safeToIndex)
+
+        categories[cIdx].stationIDs = ids
+        persistIfReady()
+    }
+
+    func saveStation(_ station: Station, toCategoryNamed categoryName: String) {
+        let trimmedName = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+
+        var stationToSave = station
+
+        if let existingIdx = categories.firstIndex(where: { $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame }) {
+            if !categories[existingIdx].stationIDs.contains(station.id) {
+                categories[existingIdx].stationIDs.append(station.id)
+                if let sIdx = stations.firstIndex(where: { $0.id == station.id }) {
+                    stations[sIdx].categoryIDs.append(categories[existingIdx].id)
+                } else {
+                    stationToSave.categoryIDs.append(categories[existingIdx].id)
+                    stations.append(stationToSave)
+                }
+            }
+        } else {
+            let newCategory = Category(name: trimmedName, stationIDs: [station.id])
+            categories.append(newCategory)
+            if let sIdx = stations.firstIndex(where: { $0.id == station.id }) {
+                stations[sIdx].categoryIDs.append(newCategory.id)
+            } else {
+                stationToSave.categoryIDs.append(newCategory.id)
+                stations.append(stationToSave)
+            }
+        }
+
+        persistIfReady()
     }
 
     func removeStation(_ station: Station, from category: Category) {
-        guard let categoryIndex = categories.firstIndex(where: { $0.id == category.id }) else { return }
-        categories[categoryIndex].stationIDs.removeAll { $0 == station.id }
+        guard let cIdx = categories.firstIndex(where: { $0.id == category.id }) else { return }
 
-        if let stationIndex = stations.firstIndex(where: { $0.id == station.id }) {
-            stations[stationIndex].categoryIDs.removeAll { $0 == category.id }
+        categories[cIdx].stationIDs.removeAll { $0 == station.id }
+
+        if let sIdx = stations.firstIndex(where: { $0.id == station.id }) {
+            stations[sIdx].categoryIDs.removeAll { $0 == category.id }
+            if stations[sIdx].categoryIDs.isEmpty {
+                stations.remove(at: sIdx)
+            }
         }
+
+        if categories[cIdx].stationIDs.isEmpty {
+            categories.remove(at: cIdx)
+        }
+
+        persistIfReady()
     }
 
     func deleteCategory(_ category: Category) {
         categories.removeAll { $0.id == category.id }
-        for index in stations.indices {
-            stations[index].categoryIDs.removeAll { $0 == category.id }
+        for i in stations.indices.reversed() {
+            stations[i].categoryIDs.removeAll { $0 == category.id }
+            if stations[i].categoryIDs.isEmpty {
+                stations.remove(at: i)
+            }
         }
-    }
-
-    func addStation(_ station: Station, to category: Category) {
-        let stationIndex: Int
-        if let existing = stations.firstIndex(where: { $0.id == station.id }) {
-            stationIndex = existing
-            stations[existing].name = station.name
-            stations[existing].streamURL = station.streamURL
-        } else {
-            stations.append(station)
-            stationIndex = stations.count - 1
-        }
-
-        guard let categoryIndex = categories.firstIndex(where: { $0.id == category.id }) else { return }
-
-        if !categories[categoryIndex].stationIDs.contains(station.id) {
-            categories[categoryIndex].stationIDs.append(station.id)
-        }
-        if !stations[stationIndex].categoryIDs.contains(category.id) {
-            stations[stationIndex].categoryIDs.append(category.id)
-        }
-    }
-
-
-    @discardableResult
-    func createCategory(named rawName: String) -> Category? {
-        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return nil }
-
-        if let existing = categories.first(where: {
-            $0.name.caseInsensitiveCompare(name) == .orderedSame
-        }) {
-            return existing
-        }
-
-        let category = Category(
-            id: UUID(),
-            name: name,
-            stationIDs: []
-        )
-        categories.append(category)
-        return category
-    }
-
-    func saveStation(_ station: Station, toCategoryNamed rawName: String) {
-        guard let category = createCategory(named: rawName) else { return }
-        addStation(station, to: category)
-    }
-
-    func moveStation(
-        in category: Category,
-        stationID: UUID,
-        toIndex requestedIndex: Int
-    ) {
-        guard let categoryIndex = categories.firstIndex(where: { $0.id == category.id }),
-              let sourceIndex = categories[categoryIndex].stationIDs.firstIndex(of: stationID) else {
-            return
-        }
-
-        var ids = categories[categoryIndex].stationIDs
-        let movingID = ids.remove(at: sourceIndex)
-        let insertionIndex = min(max(requestedIndex, 0), ids.count)
-        ids.insert(movingID, at: insertionIndex)
-        categories[categoryIndex].stationIDs = ids
-    }
-
-    private func removeLegacySampleFavoritesIfPresent() {
-        // Early development builds seeded a fake Favorites category containing
-        // one hard-coded KEXP station. Remove only that exact legacy seed.
-        guard let categoryIndex = categories.firstIndex(where: { category in
-            category.name.caseInsensitiveCompare("Favorites") == .orderedSame &&
-            category.stationIDs.count == 1
-        }) else {
-            return
-        }
-
-        let legacyStationID = categories[categoryIndex].stationIDs[0]
-
-        guard let stationIndex = stations.firstIndex(where: { station in
-            station.id == legacyStationID &&
-            station.name.caseInsensitiveCompare("KEXP") == .orderedSame &&
-            station.streamURL.lowercased().contains("kexp.streamguys1.com/kexp160.aac")
-        }) else {
-            return
-        }
-
-        categories.remove(at: categoryIndex)
-
-        let isStillUsedElsewhere = categories.contains { category in
-            category.stationIDs.contains(legacyStationID)
-        }
-
-        if !isStillUsedElsewhere {
-            stations.remove(at: stationIndex)
-        }
+        persistIfReady()
     }
 
     private func persistIfReady() {
-        guard persistenceReady else { return }
-        let snapshot = LibrarySnapshot(stations: stations, categories: categories)
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        UserDefaults.standard.set(data, forKey: persistenceKey)
+        guard persistenceReady && !isRestoring else { return }
+        let state = PersistedLibrary(categories: categories, stations: stations)
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: persistenceKey)
+        }
     }
 
-    static let sampleCategoryID = UUID()
-    static let sampleStationID = UUID()
+    private func restoreLibrary() {
+        isRestoring = true
+        defer { isRestoring = false }
 
-    static let sampleStations: [Station] = [
-        Station(
-            id: sampleStationID,
-            name: "KEXP",
-            streamURL: "https://kexp.streamguys1.com/kexp160.aac",
-            categoryIDs: [sampleCategoryID]
-        )
-    ]
+        if let data = UserDefaults.standard.data(forKey: persistenceKey),
+           let decoded = try? JSONDecoder().decode(PersistedLibrary.self, from: data) {
+            self.categories = decoded.categories
+            self.stations = decoded.stations
+        }
+    }
+}
 
-    static let sampleCategories: [Category] = [
-        Category(
-            id: sampleCategoryID,
-            name: "Favorites",
-            stationIDs: [sampleStationID]
-        )
-    ]
+private struct PersistedLibrary: Codable {
+    let categories: [Category]
+    let stations: [Station]
 }

@@ -53,17 +53,17 @@ struct MainScreen: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         topBar
                         searchArea
                         categoryCard
                         nowPlayingCard
                         playbackControls
 
-                        Spacer().frame(height: 50)
+                        Spacer().frame(height: 30)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.top, 6)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 4)
                 }
 
                 if showSearchOverlay {
@@ -184,66 +184,61 @@ struct MainScreen: View {
 
     private var headerIcon: some View {
         Group {
-            // Try AppLogo first, then AppIcon, then system fallback
+            // No fixed frame here; parent (topBar) will control the size
             if let image = UIImage(named: "AppLogo") {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: 50, height: 50) // Guaranteed fit for SE
+                    .aspectRatio(contentMode: .fit)
             } else if let icon = UIImage(named: "AppIcon") {
                 Image(uiImage: icon)
                     .resizable()
-                    .scaledToFit()
-                    .frame(width: 50, height: 50)
+                    .aspectRatio(contentMode: .fit)
             } else {
-                Image(systemName: "radio") // Cleaner system fallback
-                    .font(.system(size: 28))
+                Image(systemName: "radio")
+                    .font(.system(size: 38))
                     .foregroundStyle(.purple)
-                    .frame(width: 50, height: 50)
             }
         }
     }
 
     private var topBar: some View {
-        ZStack {
-            // Centered Icon for SE stability
+        HStack(spacing: 0) {
+            // RE-SIZED Header: Large but stays on screen
             headerIcon
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(width: 170, height: 85)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
                 .accessibilityLabel("No Hands Radio")
 
-            HStack {
-                Spacer()
+            Spacer()
 
-                HStack(spacing: 6) {
-                    Button {
-                        showSettingsOverlay = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .frame(width: 30, height: 32)
-                    }
-                    .buttonStyle(.plain)
-
-                    AirPlayRouteButton()
-                        .frame(width: 30, height: 32)
-
-                    Button {
-                        player.togglePlayback()
-                    } label: {
-                        Image(systemName: "power")
-                            .font(.system(size: 18, weight: .semibold))
-                            .foregroundStyle(
-                                player.isPlaying || player.isConnecting ? .red : .green
-                            )
-                            .frame(width: 32, height: 32)
-                    }
-                    .buttonStyle(.plain)
+            HStack(spacing: 8) {
+                Button {
+                    showSettingsOverlay = true
+                } label: {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
                 }
+                .buttonStyle(.plain)
+
+                AirPlayRouteButton()
+                    .frame(width: 44, height: 44)
+
+                Button {
+                    player.togglePlayback()
+                } label: {
+                    Image(systemName: "power")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(
+                            player.isPlaying || player.isConnecting ? .red : .green
+                        )
+                        .frame(width: 48, height: 48)
+                }
+                .buttonStyle(.plain)
             }
         }
-        .padding(.top, 4)
+        .padding(.top, 6)
     }
             
 

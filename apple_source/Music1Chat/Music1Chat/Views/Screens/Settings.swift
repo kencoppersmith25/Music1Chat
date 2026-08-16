@@ -144,8 +144,19 @@ struct SettingsPanel: View {
     var body: some View {
         ZStack {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Settings")
-                    .font(.system(size: 28, weight: .bold))
+                HStack {
+                    Text("Settings")
+                        .font(.system(size: 24, weight: .bold))
+                    Spacer()
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 22) {
@@ -159,7 +170,7 @@ struct SettingsPanel: View {
                 }
             }
             .padding(20)
-            .frame(maxWidth: 360, maxHeight: 570)
+            .frame(maxWidth: 360, maxHeight: 520) // Shrunk for SE
             .background(
                 RoundedRectangle(cornerRadius: 24)
                     .fill(Color(.secondarySystemBackground))

@@ -490,7 +490,8 @@ private struct NavigationArrowShape: Shape {
     NavigationStack {
         StationListScreen(
             library: MusicLibraryViewModel(),
-            category: MusicLibraryViewModel.sampleCategories[0]
+            category: Category(name: "Preview", stationIDs: []),
+            compactMode: true
         )
         .environmentObject(AudioPlayerService())
     }
