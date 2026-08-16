@@ -207,12 +207,50 @@ class Search(
                 }
                 .take(limit)
 
+        val interleavedStations = interleaveStations(mergedStations)
+
         return CoordinatedSearchResult(
             query = searchQuery,
             localCount = localResult.stations.size,
             liveCount = liveResult.stations.size,
-            stations = mergedStations
+            stations = interleavedStations
         )
+    }
+
+    /**
+     * Interleaves stations to prevent consecutive related stations (sister stations) 
+     * from appearing together. This helps mitigate consecutive ads from the same provider.
+     * 
+     * The logic places station i at position: (i * 10) % N + (i * 10) / N
+     */
+    private fun interleaveStations(stations: List<Station>): List<Station> {
+        if (stations.size <= 1) return stations
+
+        val n = stations.size
+        val stride = 10
+        val result = arrayOfNulls<Station>(n)
+
+        for (i in stations.indices) {
+            val targetIndex = ((i * stride) % n) + ((i * stride) / n)
+            // Safety check for array bounds in case of rounding/division edge cases
+            val safeIndex = targetIndex.coerceIn(0, n - 1)
+            
+            // If the position is already occupied (can happen if n and stride have common factors 
+            // and the formula doesn't perfectly distribute), find the next available slot.
+            if (result[safeIndex] == null) {
+                result[safeIndex] = stations[i]
+            } else {
+                for (j in 0 until n) {
+                    val fallbackIndex = (safeIndex + j) % n
+                    if (result[fallbackIndex] == null) {
+                        result[fallbackIndex] = stations[i]
+                        break
+                    }
+                }
+            }
+        }
+
+        return result.filterNotNull()
     }
 
     fun preferredStationId(

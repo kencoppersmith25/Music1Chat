@@ -24,7 +24,7 @@ struct RadioBrowserService {
         "https://de2.api.radio-browser.info",
         "https://fi1.api.radio-browser.info",
         "https://nl1.api.radio-browser.info"
-    ].compactMap(URL.init(string:))
+    ].compactMap { (str: String) -> URL? in URL(string: str) }
 
     private let session: URLSession
 
@@ -42,12 +42,11 @@ struct RadioBrowserService {
     ) async throws -> [RadioBrowserStation] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !trimmed.isEmpty else {
+        if trimmed.isEmpty {
             throw RadioBrowserServiceError.invalidSearch
         }
 
         let safeLimit = min(max(limit, 1), 100)
-
         var hadDirectoryFailure = false
 
         for baseURL in baseURLs {
@@ -61,9 +60,6 @@ struct RadioBrowserService {
                     text: trimmed,
                     finalLimit: safeLimit
                 )
-
-                // A successful search is authoritative, even when it
-                // legitimately produces zero stations.
                 return stations
             } catch is CancellationError {
                 throw CancellationError()
@@ -85,90 +81,82 @@ struct RadioBrowserService {
         finalLimit: Int
     ) async throws -> [RadioBrowserStation] {
 
-        // Search name and tag independently.
-        // Do not apply the final station limit to either search here.
-        async let nameResults = fetch(
-            baseURL: baseURL,
-            field: "name",
-            text: text
-        )
-
-        async let tagResults = fetch(
-            baseURL: baseURL,
-            field: "tag",
-            text: text
-        )
+        async let nameResults = fetch(baseURL: baseURL, field: "name", text: text)
+        async let tagResults = fetch(baseURL: baseURL, field: "tag", text: text)
 
         var collected: [RadioBrowserStation] = []
         var successfulRequestCount = 0
 
-        do {
-            collected.append(contentsOf: try await nameResults)
+        if let results = try? await nameResults {
+            collected.append(contentsOf: results)
             successfulRequestCount += 1
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // Allow the tag search to provide results if name search fails.
         }
 
-        do {
-            collected.append(contentsOf: try await tagResults)
+        if let results = try? await tagResults {
+            collected.append(contentsOf: results)
             successfulRequestCount += 1
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            // Allow the name search to provide results if tag search fails.
         }
 
         guard successfulRequestCount > 0 else {
             throw RadioBrowserServiceError.temporarilyUnavailable
         }
 
-        // Remove invalid records, but do not limit the result set.
-        let validStations = collected.filter { station in
-            let name = station.name.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-            let resolvedURL = station.urlResolved.trimmingCharacters(
-                in: .whitespacesAndNewlines
-            )
-
-            return !name.isEmpty && !resolvedURL.isEmpty
+        // 1. Filter out invalid records
+        let validStations = collected.filter { (station: RadioBrowserStation) -> Bool in
+            let cleanedName = station.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawURL = station.urlResolved ?? station.url
+            let cleanedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !cleanedName.isEmpty && !cleanedURL.isEmpty
         }
 
-        // Combine name + tag results first, then deduplicate.
+        // 2. Combine and deduplicate
         var seen = Set<String>()
+        let deduplicated = validStations.filter { (station: RadioBrowserStation) -> Bool in
+            let uuid = station.stationuuid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let rawURL = station.urlResolved ?? station.url
+            let cleanedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        let deduplicated = validStations.filter { station in
-            let uuid = station.stationuuid
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-
-            let resolvedURL = station.urlResolved
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .lowercased()
-
-            let key = uuid.isEmpty ? resolvedURL : uuid
-
-            return seen.insert(key).inserted
+            let key = uuid.isEmpty ? cleanedURL : uuid
+            if seen.contains(key) {
+                return false
+            } else {
+                seen.insert(key)
+                return true
+            }
         }
 
-        // IMPORTANT:
-        // The final limit is applied only here.
-        //
-        // Everything before this point is:
-        //   name search
-        //   + tag search
-        //   + validation
-        //   + deduplication
-        //
-        // Nothing is artificially capped along the way.
-        return Array(
-            deduplicated.prefix(finalLimit)
-        )
+        // 3. Limit and Interleave
+        let limitedResults = Array(deduplicated.prefix(finalLimit))
+        return interleaveStations(limitedResults)
     }
-    
+
+    private func interleaveStations(_ stations: [RadioBrowserStation]) -> [RadioBrowserStation] {
+        let count = stations.count
+        if count <= 1 { return stations }
+
+        let stride = 10
+        var result = [RadioBrowserStation?](repeating: nil, count: count)
+
+        for i in 0..<count {
+            let targetIndex = ((i * stride) % count) + ((i * stride) / count)
+            let safeIndex = max(0, min(targetIndex, count - 1))
+
+            if result[safeIndex] == nil {
+                result[safeIndex] = stations[i]
+            } else {
+                // Collision fallback: find next empty slot
+                for j in 0..<count {
+                    let fallbackIndex = (safeIndex + j) % count
+                    if result[fallbackIndex] == nil {
+                        result[fallbackIndex] = stations[i]
+                        break
+                    }
+                }
+            }
+        }
+
+        return result.compactMap { (s: RadioBrowserStation?) -> RadioBrowserStation? in s }
+    }
 
     private func fetch(
         baseURL: URL,
@@ -177,30 +165,16 @@ struct RadioBrowserService {
     ) async throws -> [RadioBrowserStation] {
 
         var components = URLComponents(
-            url: baseURL.appendingPathComponent(
-                "json/stations/search"
-            ),
+            url: baseURL.appendingPathComponent("json/stations/search"),
             resolvingAgainstBaseURL: false
         )
 
         components?.queryItems = [
             URLQueryItem(name: field, value: text),
-            URLQueryItem(
-                name: "\(field)Exact",
-                value: "false"
-            ),
-            URLQueryItem(
-                name: "hidebroken",
-                value: "true"
-            ),
-            URLQueryItem(
-                name: "order",
-                value: "clickcount"
-            ),
-            URLQueryItem(
-                name: "reverse",
-                value: "true"
-            )
+            URLQueryItem(name: "\(field)Exact", value: "false"),
+            URLQueryItem(name: "hidebroken", value: "true"),
+            URLQueryItem(name: "order", value: "clickcount"),
+            URLQueryItem(name: "reverse", value: "true")
         ]
 
         guard let url = components?.url else {
@@ -209,18 +183,10 @@ struct RadioBrowserService {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 6
-        request.setValue(
-            "Music1Chat/1.0 iOS",
-            forHTTPHeaderField: "User-Agent"
-        )
-        request.setValue(
-            "application/json",
-            forHTTPHeaderField: "Accept"
-        )
+        request.setValue("NoHandsRadio/1.1 iOS", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(
-            for: request
-        )
+        let (data, response) = try await session.data(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             throw RadioBrowserServiceError.invalidResponse
@@ -230,9 +196,6 @@ struct RadioBrowserService {
             throw RadioBrowserServiceError.temporarilyUnavailable
         }
 
-        return try JSONDecoder().decode(
-            [RadioBrowserStation].self,
-            from: data
-        )
+        return try JSONDecoder().decode([RadioBrowserStation].self, from: data)
     }
 }

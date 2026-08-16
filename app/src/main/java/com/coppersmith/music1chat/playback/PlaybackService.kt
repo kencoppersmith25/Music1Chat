@@ -13,6 +13,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -22,6 +23,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import com.coppersmith.music1chat.persistence.AppPreferences
 import com.coppersmith.music1chat.diagnostics.RideLogger
 import kotlinx.coroutines.CoroutineScope
@@ -89,25 +92,32 @@ class PlaybackService : MediaSessionService() {
         override fun getAvailableCommands(): Player.Commands {
             return super.getAvailableCommands()
                 .buildUpon()
+                .add(Player.COMMAND_PLAY_PAUSE)
+                .add(Player.COMMAND_STOP)
                 .add(Player.COMMAND_SEEK_TO_NEXT)
                 .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                 .add(Player.COMMAND_SEEK_TO_PREVIOUS)
                 .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_BACK)
+                .add(Player.COMMAND_SEEK_FORWARD)
                 .build()
         }
 
         override fun isCommandAvailable(command: Int): Boolean {
             return when (command) {
+                Player.COMMAND_PLAY_PAUSE,
+                Player.COMMAND_STOP,
                 Player.COMMAND_SEEK_TO_NEXT,
                 Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM,
                 Player.COMMAND_SEEK_TO_PREVIOUS,
-                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> true
+                Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM,
+                Player.COMMAND_SEEK_BACK,
+                Player.COMMAND_SEEK_FORWARD -> true
                 else -> super.isCommandAvailable(command)
             }
         }
 
         override fun hasNextMediaItem(): Boolean = true
-
         override fun hasPreviousMediaItem(): Boolean = true
 
         override fun seekToNext() {
@@ -121,36 +131,59 @@ class PlaybackService : MediaSessionService() {
         }
 
         override fun seekToPrevious() {
-            val command =
-                if (appPreferences.loadVoicePreviousMeansNextCategory()) {
-                    MediaButtonCommand.NEXT_CATEGORY
-                } else {
-                    MediaButtonCommand.PREVIOUS_STATION
-                }
-
-            RideLogger.log(
-                "ASSISTANT_COMMAND command=$command source=seekToPrevious"
-            )
-            MediaButtonCommandBus.send(command)
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekToPrevious")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
         }
 
         override fun seekToPreviousMediaItem() {
-            val command =
-                if (appPreferences.loadVoicePreviousMeansNextCategory()) {
-                    MediaButtonCommand.NEXT_CATEGORY
-                } else {
-                    MediaButtonCommand.PREVIOUS_STATION
-                }
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekToPreviousMediaItem")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
+        }
 
-            RideLogger.log(
-                "ASSISTANT_COMMAND command=$command source=seekToPreviousMediaItem"
-            )
-            MediaButtonCommandBus.send(command)
+        override fun seekBack() {
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_CATEGORY source=seekBack")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_CATEGORY)
+        }
+
+        override fun seekForward() {
+            RideLogger.log("ASSISTANT_COMMAND command=NEXT_STATION source=seekForward")
+            MediaButtonCommandBus.send(MediaButtonCommand.NEXT_STATION)
+        }
+
+        override fun stop() {
+            RideLogger.log("ASSISTANT_COMMAND command=STOP source=stop")
+            super.stop()
+        }
+
+        override fun pause() {
+            RideLogger.log("ASSISTANT_COMMAND command=PAUSE source=pause")
+            super.pause()
         }
     }
 
     private val mediaSessionCallback =
         object : MediaSession.Callback {
+            override fun onConnect(
+                session: MediaSession,
+                controller: MediaSession.ControllerInfo
+            ): MediaSession.ConnectionResult {
+                // Explicitly allow all commands and advertise our capabilities
+                val availableSessionCommands =
+                    MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+                        .build()
+                val playerCommands = session.player.availableCommands.buildUpon()
+                    .add(Player.COMMAND_SEEK_TO_NEXT)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .build()
+                
+                return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                    .setAvailableSessionCommands(availableSessionCommands)
+                    .setAvailablePlayerCommands(playerCommands)
+                    .build()
+            }
+
             override fun onMediaButtonEvent(
                 session: MediaSession,
                 controllerInfo: MediaSession.ControllerInfo,
@@ -164,8 +197,11 @@ class PlaybackService : MediaSessionService() {
                     KeyEvent.KEYCODE_MEDIA_PLAY,
                     KeyEvent.KEYCODE_MEDIA_PAUSE,
                     KeyEvent.KEYCODE_MEDIA_STOP -> MediaButtonCommand.TOGGLE_PLAYBACK
-                    KeyEvent.KEYCODE_MEDIA_NEXT -> MediaButtonCommand.NEXT_STATION
-                    KeyEvent.KEYCODE_MEDIA_PREVIOUS -> MediaButtonCommand.NEXT_CATEGORY
+                    KeyEvent.KEYCODE_MEDIA_NEXT,
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> MediaButtonCommand.NEXT_STATION
+                    KeyEvent.KEYCODE_MEDIA_PREVIOUS,
+                    KeyEvent.KEYCODE_MEDIA_REWIND,
+                    KeyEvent.KEYCODE_BACK -> MediaButtonCommand.NEXT_CATEGORY
                     else -> null
                 }
 
@@ -318,10 +354,31 @@ class PlaybackService : MediaSessionService() {
 
         assistantPlayer = AssistantCommandPlayer(exoPlayer)
 
-        mediaSession = MediaSession.Builder(this, assistantPlayer)
-            .setId("Music1ChatSession")
+        val intent = packageManager.getLaunchIntentForPackage(packageName)?.let {
+            android.app.PendingIntent.getActivity(this, 0, it, android.app.PendingIntent.FLAG_IMMUTABLE)
+        }
+
+        val session = MediaSession.Builder(this, assistantPlayer)
+            .setId("NoHandsRadioSession")
             .setCallback(mediaSessionCallback)
+            .apply {
+                if (intent != null) {
+                    setSessionActivity(intent)
+                }
+            }
             .build()
+            
+        // Help Google Assistant understand we are a RADIO app.
+        // This makes phrases like "Next Station" work much better.
+        val metadata = MediaMetadata.Builder()
+            .setTitle("No Hands Radio")
+            .setArtist("Live Stream")
+            .setIsPlayable(true)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_RADIO_STATION)
+            .build()
+        exoPlayer.setPlaylistMetadata(metadata)
+
+        mediaSession = session
 
         playbackScope.launch {
             try {

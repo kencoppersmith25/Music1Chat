@@ -16,7 +16,7 @@ import AppIntents
 struct NextStationIntent: AppIntent {
     static let title: LocalizedStringResource = "Next Station"
     static let description = IntentDescription(
-        "Play the next available radio station in Music1Chat."
+        "Play the next available radio station in No Hands Radio."
     )
 
     static let openAppWhenRun = false
@@ -33,7 +33,7 @@ struct NextStationIntent: AppIntent {
 struct PreviousStationIntent: AppIntent {
     static let title: LocalizedStringResource = "Previous Station"
     static let description = IntentDescription(
-        "Play the previous available radio station in Music1Chat."
+        "Play the previous available radio station in No Hands Radio."
     )
 
     static let openAppWhenRun = false
@@ -50,7 +50,7 @@ struct PreviousStationIntent: AppIntent {
 struct NextCategoryIntent: AppIntent {
     static let title: LocalizedStringResource = "Next Category"
     static let description = IntentDescription(
-        "Move to the next radio category in Music1Chat."
+        "Move to the next radio category in No Hands Radio."
     )
 
     static let openAppWhenRun = false
@@ -67,7 +67,7 @@ struct NextCategoryIntent: AppIntent {
 struct PreviousCategoryIntent: AppIntent {
     static let title: LocalizedStringResource = "Previous Category"
     static let description = IntentDescription(
-        "Move to the previous radio category in Music1Chat."
+        "Move to the previous radio category in No Hands Radio."
     )
 
     static let openAppWhenRun = false
@@ -131,11 +131,11 @@ final class Music1ChatIntentBridge {
 // MARK: - Notifications
 
 extension Notification.Name {
-    static let music1ChatNextCategory =
-        Notification.Name("Music1Chat.NextCategory")
+    static let noHandsRadioNextCategory =
+        Notification.Name("NoHandsRadio.NextCategory")
 
-    static let music1ChatPreviousCategory =
-        Notification.Name("Music1Chat.PreviousCategory")
+    static let noHandsRadioPreviousCategory =
+        Notification.Name("NoHandsRadio.PreviousCategory")
 }
 
 
@@ -149,7 +149,8 @@ struct Music1ChatShortcuts: AppShortcutsProvider {
             intent: NextStationIntent(),
             phrases: [
                 "Next station in \(.applicationName)",
-                "Next station in \(.applicationName)",
+                "Next track in \(.applicationName)",
+                "Next category in \(.applicationName)",
                 "Play the next station in \(.applicationName)"
             ],
             shortTitle: "Next Station",
@@ -160,19 +161,20 @@ struct Music1ChatShortcuts: AppShortcutsProvider {
             intent: PreviousStationIntent(),
             phrases: [
                 "Previous station in \(.applicationName)",
-                "Previous station in \(.applicationName)",
+                "Previous track in \(.applicationName)",
+                "Previous category in \(.applicationName)",
                 "Play the previous station in \(.applicationName)"
             ],
             shortTitle: "Previous Station",
             systemImageName: "backward.fill"
         )
 
+        // Keep specific category intents for advanced users/shortcuts
         AppShortcut(
             intent: NextCategoryIntent(),
             phrases: [
-                "Next category in \(.applicationName)",
-                "Next category in \(.applicationName)",
-                "Go to the next category in \(.applicationName)"
+                "Skip category in \(.applicationName)",
+                "Next genre in \(.applicationName)"
             ],
             shortTitle: "Next Category",
             systemImageName: "arrow.right.circle.fill"

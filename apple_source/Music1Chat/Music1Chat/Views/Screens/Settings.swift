@@ -107,7 +107,7 @@ final class CategoryAnnouncementSpeaker: ObservableObject {
     }
 
     func previewVoice(identifier: String?) {
-        speak("Music1Chat category announcement", voiceIdentifier: identifier)
+        speak("No Hands Radio category announcement", voiceIdentifier: identifier)
     }
 
     private func speak(

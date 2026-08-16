@@ -29,6 +29,7 @@ struct MainScreen: View {
     private let radioBrowserService = RadioBrowserService()
 
     private let defaultQuickSearches = [
+        "60s",
         "Classical",
         "Jazz",
         "Rock"
@@ -52,16 +53,17 @@ struct MainScreen: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 14) {
+                    VStack(spacing: 8) {
                         topBar
                         searchArea
                         categoryCard
                         nowPlayingCard
                         playbackControls
+
+                        Spacer().frame(height: 50)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    .padding(.bottom, 24)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
                 }
 
                 if showSearchOverlay {
@@ -103,26 +105,25 @@ struct MainScreen: View {
                     handlePreviousTrackCommand()
                 }
 
+                player.onAuditionFailed = { message in
+                    // Status text handles this
+                }
+
                 Music1ChatIntentBridge.shared.connectCategoryActions(
-                    next: {
-                        nextCategory()
-                    },
-                    previous: {
-                        previousCategory()
-                    }
+                    next: { nextCategory() },
+                    previous: { previousCategory() }
                 )
 
                 scheduleNavigationPrefetch()
 
-                // Background validation of all saved searches at startup
-                Task {
-                    // Staggered start to prevent network congestion
-                    try? await Task.sleep(nanoseconds: 2_000_000_000)
-
-                    for saved in player.savedSearchQueues {
-                        if saved.name.caseInsensitiveCompare(player.activeQueueName ?? "") != .orderedSame {
-                            try? await Task.sleep(nanoseconds: 500_000_000)
-                            validateSearchBackground(named: saved.name)
+                // DELAYED validation to speed up screen rendering
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    Task {
+                        for saved in player.savedSearchQueues {
+                            if saved.name.caseInsensitiveCompare(player.activeQueueName ?? "") != .orderedSame {
+                                try? await Task.sleep(nanoseconds: 500_000_000)
+                                validateSearchBackground(named: saved.name)
+                            }
                         }
                     }
                 }
@@ -163,7 +164,7 @@ struct MainScreen: View {
                     pendingDeleteSearchName = nil
                 }
             } message: {
-                Text("This removes the saved search category. The station currently playing will keep playing while Music1Chat finds the next enabled category.")
+                Text("This removes the saved search category. The station currently playing will keep playing while No Hands Radio finds the next enabled category.")
             }
             .alert(
                 "Search",
@@ -180,42 +181,69 @@ struct MainScreen: View {
     }
 
     // MARK: - Top Bar
-    
-    private var topBar: some View {
-        HStack(spacing: 0) {
-            Image("HandsFreeInterlockedHeader")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 270, height: 98)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Hands Free Radio")
-            HStack(spacing: 2) {
-                Button {
-                    showSettingsOverlay = true
-                } label: {
-                    Image(systemName: "gearshape.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                AirPlayRouteButton()
-                    .frame(width: 32, height: 32)
 
-                Button {
-                    player.togglePlayback()
-                } label: {
-                    Image(systemName: "power")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(
-                            player.isPlaying || player.isConnecting ? .red : .green
-                        )
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
+    private var headerIcon: some View {
+        Group {
+            // Try AppLogo first, then AppIcon, then system fallback
+            if let image = UIImage(named: "AppLogo") {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 50, height: 50) // Guaranteed fit for SE
+            } else if let icon = UIImage(named: "AppIcon") {
+                Image(uiImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 50, height: 50)
+            } else {
+                Image(systemName: "radio") // Cleaner system fallback
+                    .font(.system(size: 28))
+                    .foregroundStyle(.purple)
+                    .frame(width: 50, height: 50)
             }
         }
-        .padding(.top, 8)
+    }
+
+    private var topBar: some View {
+        ZStack {
+            // Centered Icon for SE stability
+            headerIcon
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .accessibilityLabel("No Hands Radio")
+
+            HStack {
+                Spacer()
+
+                HStack(spacing: 6) {
+                    Button {
+                        showSettingsOverlay = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 30, height: 32)
+                    }
+                    .buttonStyle(.plain)
+
+                    AirPlayRouteButton()
+                        .frame(width: 30, height: 32)
+
+                    Button {
+                        player.togglePlayback()
+                    } label: {
+                        Image(systemName: "power")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(
+                                player.isPlaying || player.isConnecting ? .red : .green
+                            )
+                            .frame(width: 32, height: 32)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.top, 4)
     }
             
 
@@ -317,18 +345,21 @@ struct MainScreen: View {
             Button {
                 showCategoryList = true
             } label: {
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 2) { // Compact spacing
                     Text("CATEGORY")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
 
-                    Text(displayedCategoryName)
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
+                    ScrollingText(
+                        text: displayedCategoryName,
+                        font: .system(size: 19, weight: .bold),
+                        color: .white,
+                        speed: 0.8
+                    )
+                    .frame(height: 24)
 
                     Text(categoryPositionText)
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -388,35 +419,36 @@ struct MainScreen: View {
     // MARK: - Now Playing
 
     private var nowPlayingCard: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: 5) { // Compact inner spacing
 
             HStack(
                 alignment: .top,
                 spacing: 12
             ) {
                 stationArtwork
+                    .frame(width: 64, height: 64) // Smaller artwork for SE
 
                 VStack(
                     alignment: .leading,
-                    spacing: 5
+                    spacing: 2
                 ) {
                     ScrollingText(
                         text: player.nowPlayingTitle
                             ?? (player.isPlaying
                                 ? "Live Radio"
                                 : ((library.categories.isEmpty && player.savedSearchQueues.isEmpty)
-                                    ? "Search for stations to get started"
-                                    : "Ready")),
-                        font: .system(size: 21, weight: .bold),
+                                    ? "Tap a genre below to get started"
+                                    : "Ready to Play")),
+                        font: .system(size: 19, weight: .bold),
                         color: .white,
-                        speed: 1.18
+                        speed: 0.8
                     )
-                    .frame(height: 27)
+                    .frame(height: 24)
 
                     if let artist = player.nowPlayingArtist,
                        !artist.isEmpty {
                         Text(artist)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -424,15 +456,12 @@ struct MainScreen: View {
                     HStack(spacing: 8) {
                         if !player.isPlaying {
                             Text(playbackStatusText)
-                                .font(.system(
-                                    size: 13,
-                                    weight: .medium
-                                ))
+                                .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
 
                         VUMeter(isPlaying: player.isPlaying)
-                            .frame(width: 42, height: 13)
+                            .frame(width: 38, height: 11)
                     }
                 }
 
@@ -574,6 +603,11 @@ struct MainScreen: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            } else if let error = player.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
             } else if player.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -1289,6 +1323,7 @@ struct MainScreen: View {
         showSearchOverlay = false
         searchFieldFocused = false
         searchErrorMessage = nil
+        player.setAuditionStatus(message: "Searching for “\(query)”…")
 
         Task {
             do {
@@ -1297,6 +1332,7 @@ struct MainScreen: View {
                     limit: settings.maximumSearchResults
                 )
                 guard !results.isEmpty else {
+                    player.setAuditionStatus(message: nil)
                     searchErrorMessage = "No stations matched \(query)."
                     return
                 }
@@ -1328,7 +1364,8 @@ struct MainScreen: View {
                 if !results.isEmpty {
                     // This call will trigger the Safety Shield in saveOrUpdateSearchQueue
                     // if the results are suspiciously small.
-                    player.updateSavedSearchQueue(named: query, stations: results.map(\.asStation))
+                    let stationList: [Station] = results.map { $0.asStation }
+                    player.updateSavedSearchQueue(named: query, stations: stationList)
                 }
             } catch {
                 // Silently ignore background refresh errors
@@ -1466,7 +1503,7 @@ struct MainScreen: View {
             names.append(searchName)
         }
 
-        let currentStaticCategoryID = activeLibraryCategory?.id
+        let currentStaticCategoryID = player.activeLibraryCategoryID
         names.append(
             contentsOf: library.categories
                 .filter { $0.id != currentStaticCategoryID }
@@ -1604,17 +1641,27 @@ struct MainScreen: View {
 
 }
 
-// MARK: - AdMob Test Banner
+// MARK: - AdMob Banner View
 
 private struct AdMobBannerView: UIViewRepresentable {
-    // Google's official iOS test banner ID. Replace with the real banner ID only for release.
-    private let testAdUnitID = "ca-app-pub-3940256099942544/2435281174"
+    /*
+     * PRODUCTION READY:
+     * When you have your real iOS IDs from AdMob, paste them here:
+     * App ID (for Info.plist): ca-app-pub-XXXXXXXXXXXXXXXX~XXXXXXXXXX
+     * Banner ID: ca-app-pub-XXXXXXXXXXXXXXXX/XXXXXXXXXX
+     */
+
+    private let productionAdUnitID = "ca-app-pub-3940256099942544/2934735716" // Replace with real ID
+    private let testAdUnitID = "ca-app-pub-3940256099942544/2934735716"
 
     func makeUIView(context: Context) -> BannerView {
         MobileAds.shared.start()
 
         let banner = BannerView(adSize: AdSizeBanner)
+
+        // SWITCH TO productionAdUnitID before submitting to Apple
         banner.adUnitID = testAdUnitID
+
         banner.load(Request())
         return banner
     }
@@ -1726,15 +1773,16 @@ private struct MarqueeText: View {
     }
 
     private func start(in width: CGFloat) {
-        let estimatedTextWidth = CGFloat(max(text.count, 1)) * 10.5
+        let textWidth = CGFloat(text.count) * 11.0
         offset = width
-        let duration = max(19.5, Double(text.count) * 0.37) / max(speed, 0.1)
+        // FIXED SPEED: 30 points per second (constant)
+        let duration = Double(max(textWidth + width, 1)) / 30.0 / speed
 
         withAnimation(
             .linear(duration: duration)
                 .repeatForever(autoreverses: false)
         ) {
-            offset = -estimatedTextWidth
+            offset = -textWidth
         }
     }
 }

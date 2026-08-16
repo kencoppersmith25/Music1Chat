@@ -813,7 +813,7 @@ class AppPreferences(
         private const val KEY_SEARCH_RESULT_LIMIT =
             "search_result_limit"
 
-        private const val DEFAULT_SEARCH_RESULT_LIMIT = 10
+        private const val DEFAULT_SEARCH_RESULT_LIMIT = 50
         private const val MINIMUM_SEARCH_RESULT_LIMIT = 5
         private const val MAXIMUM_SEARCH_RESULT_LIMIT = 100
         private const val SEARCH_RESULT_LIMIT_STEP = 5

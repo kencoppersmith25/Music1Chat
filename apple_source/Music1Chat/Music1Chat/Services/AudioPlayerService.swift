@@ -133,12 +133,14 @@ final class AudioPlayerService: ObservableObject {
     private var stationNavigation: [String: Bool] = [:]
 
     init() {
-        configureAudioSession()
-        observeAudioRouteChanges()
-        configureRemoteCommands()
-        restorePersistedState()
-        updateRemoteCommandAvailability()
-        updateNowPlayingInfo()
+        Task {
+            configureAudioSession()
+            observeAudioRouteChanges()
+            configureRemoteCommands()
+            restorePersistedState()
+            updateRemoteCommandAvailability()
+            updateNowPlayingInfo()
+        }
     }
 
     var isPlaying: Bool {
@@ -781,7 +783,8 @@ final class AudioPlayerService: ObservableObject {
         attachMetadataObserver(to: item)
         let newPlayer = AVPlayer(playerItem: item)
         newPlayer.allowsExternalPlayback = true
-        newPlayer.automaticallyWaitsToMinimizeStalling = true
+        newPlayer.automaticallyWaitsToMinimizeStalling = true // Safety: wait for buffer
+        newPlayer.volume = 1.0 // Ensure physical volume
         player = newPlayer
 
         observePlayerItem(
@@ -1152,24 +1155,30 @@ final class AudioPlayerService: ObservableObject {
             index: Int,
             url: URL?
         ) {
-            // Stop current active player before promoting audition player
-            stopCurrentAttempt()
+            // CRITICAL: First, keep a reference to the successful audition player
+            guard let newPlayer = self.auditionPlayer else { return }
+
+            // 1. Stop and invalidate the OLD player BEFORE promoting the new one
+            // This clears the audio session for the new stream
+            self.player?.pause()
+            self.stopCurrentAttempt(killPlayer: true)
 
             playbackGeneration += 1
             let generation = playbackGeneration
 
-            if let auditionPlayer {
-                auditionPlayer.volume = 1.0
-                self.player = auditionPlayer
-                self.currentResolvedURL = url
+            // 2. Transfer audition player to primary player slot
+            newPlayer.volume = 1.0
+            self.player = newPlayer
+            self.currentResolvedURL = url
 
-                if let item = auditionPlayer.currentItem {
-                    attachMetadataObserver(to: item)
-                    observePlayerItem(item: item, station: station, generation: generation)
-                }
-                observePlaybackState(player: auditionPlayer, station: station, generation: generation)
+            // 3. Re-bind observations to the new active player instance
+            if let item = newPlayer.currentItem {
+                attachMetadataObserver(to: item)
+                observePlayerItem(item: item, station: station, generation: generation)
             }
+            observePlaybackState(player: newPlayer, station: station, generation: generation)
 
+            // 4. Update data state
             activeQueue = auditionQueue
             activeQueueName = auditionQueueName
             activeLibraryCategoryID = auditionLibraryCategoryID
@@ -1181,11 +1190,31 @@ final class AudioPlayerService: ObservableObject {
             failedStationID = nil
 
             if auditionShouldSaveQueue, let name = auditionQueueName, !name.isEmpty {
-                saveOrUpdateSearchQueue(name: name, stations: auditionQueue)
+                saveOrUpdateSearchQueue(named: name, stations: auditionQueue)
             }
 
             let completion = auditionCompletion
-            cancelAudition()
+
+            // 5. Clean up audition state but DON'T stop the new active player
+            self.auditionResolutionTask?.cancel()
+            self.auditionResolutionTask = nil
+            self.auditionStartupTask?.cancel()
+            self.auditionStartupTask = nil
+            self.auditionTimeControlObservation?.invalidate()
+            self.auditionTimeControlObservation = nil
+            self.auditionItemStatusObservation?.invalidate()
+            self.auditionItemStatusObservation = nil
+            // Clear reference without calling .pause()
+            self.auditionPlayer = nil
+
+            self.auditionGeneration += 1
+            self.auditionQueue = []
+            self.auditionQueueName = nil
+            self.auditionLibraryCategoryID = nil
+            self.auditionQueueIndex = 0
+            self.auditionFailedIndices.removeAll()
+            self.auditionStatusMessage = nil
+            self.auditionResolvedURL = nil
 
             updateNowPlayingInfo()
             updateRemoteCommandAvailability()
@@ -1290,13 +1319,20 @@ final class AudioPlayerService: ObservableObject {
             auditionResolvedURL = nil
         }
 
-        // MARK: - Helpers & Internal Management
-
-        func updateSavedSearchQueue(name: String, stations: [Station]) {
-            saveOrUpdateSearchQueue(name: name, stations: stations)
+        func setAuditionStatus(message: String?) {
+            auditionStatusMessage = message
+            if message != nil {
+                errorMessage = nil
+            }
         }
 
-        private func saveOrUpdateSearchQueue(name: String, stations: [Station]) {
+        // MARK: - Helpers & Internal Management
+
+        func updateSavedSearchQueue(named name: String, stations: [Station]) {
+            saveOrUpdateSearchQueue(named: name, stations: stations)
+        }
+
+        private func saveOrUpdateSearchQueue(named name: String, stations: [Station]) {
             let key = normalizedName(name)
             if let existingIndex = savedSearchQueues.firstIndex(where: { normalizedName($0.name) == key }) {
                 let previousCount = savedSearchQueues[existingIndex].stations.count
@@ -1313,16 +1349,18 @@ final class AudioPlayerService: ObservableObject {
             }
         }
 
-        private func stopCurrentAttempt() {
+        private func stopCurrentAttempt(killPlayer: Bool = true) {
             resolutionTask?.cancel()
             resolutionTask = nil
             cancelStartupWatchdog()
 
             invalidateObservations()
 
-            player?.pause()
-            player?.replaceCurrentItem(with: nil)
-            player = nil
+            if killPlayer {
+                player?.pause()
+                player?.replaceCurrentItem(with: nil)
+                player = nil
+            }
             currentResolvedURL = nil
         }
 
@@ -1376,7 +1414,8 @@ final class AudioPlayerService: ObservableObject {
         private func configureAudioSession() {
             do {
                 let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [])
+                // Explicitly allow AirPlay and Bluetooth for background continuity
+                try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetooth])
                 try session.setActive(true)
             } catch {
                 print("Failed to configure AVAudioSession: \(error)")
@@ -1499,7 +1538,10 @@ final class AudioPlayerService: ObservableObject {
             if let index = currentQueueIndex, activeQueue.indices.contains(index) {
                 currentStation = activeQueue[index]
                 if state.shouldResume {
-                    startQueueItem(at: index)
+                    // Small delay on startup to ensure Network/AudioSession are fully awake
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        self.startQueueItem(at: index)
+                    }
                 }
             }
         }

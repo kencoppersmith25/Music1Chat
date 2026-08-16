@@ -25,7 +25,7 @@ package com.coppersmith.music1chat.ui.screens
 // PLAYBACK SESSION INTEGRATION V2
 // Search results participate as a temporary category in category navigation.
 
-import android.util.Log
+import android.net.Uri
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -70,6 +70,7 @@ import com.coppersmith.music1chat.ui.components.CategoryPicker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.coppersmith.music1chat.BuildConfig
+import com.coppersmith.music1chat.models.Station
 
 
 @Composable
@@ -103,9 +104,6 @@ fun MainScreen() {
             normalizedSearchKey = searchCoordinator::normalizedKey
         )
     }
-
-    val repositoryCategories =
-        libraryStartup.repositoryCategories
 
     val repositoryStations =
         libraryStartup.repositoryStations
@@ -1040,8 +1038,7 @@ fun MainScreen() {
                 appPreferences.savePermanentLibrary(
                     categoryRepository =
                         musicRepository.categories,
-                    stationRepository =
-                        musicRepository.stations,
+                    stationRepository = musicRepository.stations,
                     membershipRepository =
                         membershipRepository
                 )
@@ -1210,14 +1207,6 @@ fun MainScreen() {
         stationStateVersion++
     }
 
-    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
-        // Clear the navigation feedback ONLY once the music actually starts playing
-        // or if an error message takes its place.
-        if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
-            navigationStatusMessage = null
-        }
-    }
-
     LaunchedEffect(Unit) {
         // Wait for the UI to be fully interactive before background work
         delay(1500)
@@ -1259,14 +1248,6 @@ fun MainScreen() {
             }
 
             startupRestoreComplete = true
-        }
-    }
-
-    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.errorMessage) {
-        // Clear the navigation feedback ONLY once the music actually starts playing
-        // or if an error message takes its place.
-        if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
-            navigationStatusMessage = null
         }
     }
 

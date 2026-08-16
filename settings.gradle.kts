@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Hands Free Radio"
+rootProject.name = "No Hands Radio"
 include(":app")
  

@@ -15,7 +15,7 @@ final class MusicLibraryViewModel: ObservableObject {
         let categories: [Category]
     }
 
-    private let persistenceKey = "Music1Chat.Library.v1"
+    private let persistenceKey = "NoHandsRadio.Library.v1"
     private var persistenceReady = false
 
     init(
@@ -36,8 +36,33 @@ final class MusicLibraryViewModel: ObservableObject {
         }
 
         removeLegacySampleFavoritesIfPresent()
+
+        // Ensure "Reliable Stations" exists on first run
+        if categories.isEmpty && stations.isEmpty {
+            createReliableStarterPack()
+        }
+
         persistenceReady = true
         persistIfReady()
+    }
+
+    private func createReliableStarterPack() {
+        let starterStations = [
+            Station(name: "Classical King FM", streamURL: "https://kingfm.streamguys1.com/king-fm-mp3", artworkURL: "https://www.king.org/wp-content/uploads/2019/12/KINGFM_Logos_Square_White_RGB-1.png"),
+            Station(name: "Jazz24", streamURL: "https://kexp-jazz24.streamguys1.com/jazz24.mp3", artworkURL: "https://vignette.wikia.nocookie.net/logopedia/images/4/4e/Jazz24_logo.png"),
+            Station(name: "BBC World Service", streamURL: "https://stream.live.vc.bbcmedia.co.uk/bbc_world_service", artworkURL: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/BBC_World_Service_logo.svg/1200px-BBC_World_Service_logo.svg.png"),
+            Station(name: "SomaFM Groove Salad", streamURL: "https://ice1.somafm.com/groovesalad-256-mp3", artworkURL: "https://somafm.com/img/gs256.png"),
+            Station(name: "Radio Swiss Classic", streamURL: "https://stream.srg-ssr.ch/m/rsc_de/mp3_128", artworkURL: "https://www.radioswissclassic.ch/images/rsc_logo_square.png")
+        ]
+
+        self.stations = starterStations
+        let reliableCategory = Category(name: "Reliable Stations", stationIDs: starterStations.map { $0.id })
+        self.categories = [reliableCategory]
+
+        // Ensure stations are linked to the category
+        for i in self.stations.indices {
+            self.stations[i].categoryIDs = [reliableCategory.id]
+        }
     }
 
     func stations(in category: Category) -> [Station] {

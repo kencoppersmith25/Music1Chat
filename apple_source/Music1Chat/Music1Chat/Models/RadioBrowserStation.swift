@@ -7,10 +7,11 @@
 
 import Foundation
 
-struct RadioBrowserStation: Identifiable, Decodable, Hashable {
+internal struct RadioBrowserStation: Identifiable, Decodable, Hashable {
     let stationuuid: String
     let name: String
-    let urlResolved: String
+    let url: String
+    let urlResolved: String?
     let favicon: String?
     let country: String?
     let tags: String?
@@ -20,6 +21,7 @@ struct RadioBrowserStation: Identifiable, Decodable, Hashable {
     enum CodingKeys: String, CodingKey {
         case stationuuid
         case name
+        case url
         case urlResolved = "url_resolved"
         case favicon
         case country
@@ -31,8 +33,9 @@ struct RadioBrowserStation: Identifiable, Decodable, Hashable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         return Station(
+            id: UUID(uuidString: stationuuid) ?? UUID(),
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            streamURL: urlResolved.trimmingCharacters(in: .whitespacesAndNewlines),
+            streamURL: (urlResolved ?? url).trimmingCharacters(in: .whitespacesAndNewlines),
             artworkURL: (cleanedArtwork?.isEmpty == false) ? cleanedArtwork : nil
         )
     }
