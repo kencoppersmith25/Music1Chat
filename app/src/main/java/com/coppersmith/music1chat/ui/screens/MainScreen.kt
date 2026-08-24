@@ -777,6 +777,8 @@ fun MainScreen() {
             return
         }
 
+        navigationStatusMessage = "Connecting…"
+
         saveCurrentState(
             state = result.state,
             wasPlaying = true
@@ -1856,9 +1858,9 @@ fun MainScreen() {
                     } else {
                         navigationStatusMessage =
                             if (!libraryHasCategories) {
-                                "No categories yet. Search to find stations!\n\nTIP: Say \"Hey Google, Play\", \"Stop\", \"Next\" or \"Previous\" to control hands-free."
+                                "No categories yet. Search to find stations!\n\nTIP: Say \"Hey Google, Play\", \"Stop\", \"Next\" or \"Previous\" to control hands-free. (Note: \"Previous\" changes the category by default; this can be adjusted in Settings)."
                             } else {
-                                "No stations available.\n\nTIP: Say \"Hey Google, Play\", \"Stop\", \"Next\" or \"Previous\" to control hands-free."
+                                "No stations available.\n\nTIP: Say \"Hey Google, Play\", \"Stop\", \"Next\" or \"Previous\" to control hands-free. (Note: \"Previous\" changes the category by default; this can be adjusted in Settings)."
                             }
                     }
                 },

@@ -634,8 +634,8 @@ class RadioPlayer(
     }
 
     companion object {
-        private const val STARTUP_TIMEOUT_MILLISECONDS = 12_000L // Relaxed from 3.5s to 12s
-        private const val STALL_FAILURE_TIMEOUT_MILLISECONDS = 15_000L // Relaxed from 10s to 15s
+        private const val STARTUP_TIMEOUT_MILLISECONDS = 8_000L // Reduced from 12s to 8s
+        private const val STALL_FAILURE_TIMEOUT_MILLISECONDS = 10_000L // Reduced from 15s to 10s
         private const val FAILED_STATION_RETRY_DELAY_MILLISECONDS = 15 * 60 * 1000L
         const val TEST_STREAM_URL = "https://ice5.somafm.com/groovesalad-128-mp3"
     }
