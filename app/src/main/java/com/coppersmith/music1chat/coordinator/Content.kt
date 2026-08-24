@@ -230,6 +230,16 @@ fun Content(
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center
             )
+        } ?: run {
+            if (startupRestoreComplete && !isPlaying) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Stopped",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
 
         Spacer(modifier = Modifier.weight(1f))

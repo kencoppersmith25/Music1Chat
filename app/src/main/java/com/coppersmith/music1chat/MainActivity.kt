@@ -9,10 +9,12 @@ import android.os.PowerManager
 import androidx.lifecycle.Lifecycle
 import com.coppersmith.music1chat.ads.AdManager
 import com.google.android.gms.ads.MobileAds
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
 
         // Initialize Mobile Ads SDK

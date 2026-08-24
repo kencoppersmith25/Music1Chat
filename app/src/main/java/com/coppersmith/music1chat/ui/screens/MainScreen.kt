@@ -133,25 +133,36 @@ fun MainScreen() {
         libraryStartup.shouldResumePlayback
 
     val sessionController = remember {
-        PlaybackSessionController(
-            initialState =
-                PlaybackSessionState(
-                    mode = PlaybackSessionMode.CATEGORY,
-                    categoryId = initialCategory?.id,
-                    categoryName = initialCategory?.name.orEmpty(),
-                    stations = initialStations,
-                    currentIndex =
-                        initialStations
-                            .indexOfFirst { station ->
-                                station.id == initialStation?.id
-                            }
-                            .takeIf { index ->
-                                index >= 0
-                            } ?: 0,
-                    playbackRequested =
-                        shouldResumePlayback
-                )
-        )
+        val initialState = if (initiallyCurrentSearch != null && savedPlaybackState.categoryId == null) {
+            // INTENT: Restore a Search session.
+            // We initialize with the query name immediately so the UI is correct.
+            PlaybackSessionState(
+                mode = PlaybackSessionMode.SEARCH,
+                categoryName = initiallyCurrentSearch.query,
+                stations = emptyList(), // Will be filled by runSearch
+                currentIndex = initiallyCurrentSearch.currentIndex ?: 0,
+                playbackRequested = shouldResumePlayback
+            )
+        } else {
+            // INTENT: Restore a Library Category.
+            PlaybackSessionState(
+                mode = PlaybackSessionMode.CATEGORY,
+                categoryId = initialCategory?.id,
+                categoryName = initialCategory?.name.orEmpty(),
+                stations = initialStations,
+                currentIndex =
+                    initialStations
+                        .indexOfFirst { station ->
+                            station.id == initialStation?.id
+                        }
+                        .takeIf { index ->
+                            index >= 0
+                        } ?: 0,
+                playbackRequested = shouldResumePlayback
+            )
+        }
+        
+        PlaybackSessionController(initialState = initialState)
     }
 
     val stationOperations = remember {
@@ -193,7 +204,9 @@ fun MainScreen() {
     }
 
     var navigationStatusMessage by remember {
-        mutableStateOf<String?>(null)
+        mutableStateOf<String?>(
+            if (libraryStartup.shouldResumePlayback) null else "Stopped"
+        )
     }
 
     var searchFeedbackMessage by remember {
@@ -202,6 +215,10 @@ fun MainScreen() {
 
     var startupRestoreComplete by remember {
         mutableStateOf(false)
+    }
+
+    var isRestoringInitialPlayback by remember {
+        mutableStateOf(libraryStartup.shouldResumePlayback)
     }
 
     val announcementManager = remember {
@@ -360,12 +377,18 @@ fun MainScreen() {
     val effectiveCategoryDisplayName =
         if (sessionState.isSearch) {
             if (effectiveSearchQuery.isBlank()) {
-                "Search ($effectiveCategoryStationCount)"
+                "Search"
+            } else if (effectiveCategoryStationCount == 0 && !startupRestoreComplete) {
+                "Search: $effectiveSearchQuery"
             } else {
                 "Search: $effectiveSearchQuery ($effectiveCategoryStationCount)"
             }
         } else {
-            "${sessionState.categoryName} ($effectiveCategoryStationCount)"
+            if (effectiveCategoryStationCount == 0 && !startupRestoreComplete) {
+                sessionState.categoryName
+            } else {
+                "${sessionState.categoryName} ($effectiveCategoryStationCount)"
+            }
         }
 
     val searchSuggestions: List<String> = remember(
@@ -417,8 +440,10 @@ fun MainScreen() {
         // or if an error message takes its place.
         if (radioPlayer.isPlaying || radioPlayer.errorMessage != null) {
             navigationStatusMessage = null
+            isRestoringInitialPlayback = false
         }
     }
+
 
     if (BuildConfig.DEBUG) {
         LaunchedEffect(Unit) {
@@ -657,6 +682,8 @@ fun MainScreen() {
                     if (!completion.succeeded) {
                         navigationStatusMessage =
                             "Unable to load the next category."
+                    } else if (!radioPlayer.isPlaying) {
+                        navigationStatusMessage = "Stopped"
                     }
 
                     completion.queuedDirection?.let { queuedDirection ->
@@ -808,9 +835,13 @@ fun MainScreen() {
                             )
                         )
                         activeSearchQuery = searchQuery
-                        appPreferences.saveWasPlaying(startPlayback)
+                        appPreferences.savePlaybackState(
+                            categoryId = null,
+                            stationId = null,
+                            wasPlaying = startPlayback
+                        )
                         searchFeedbackMessage = null
-                        navigationStatusMessage = null
+                        navigationStatusMessage = if (startPlayback) null else "Stopped"
 
                         if (startPlayback) {
                             playCurrentSessionStation(outcome.state)
@@ -823,6 +854,8 @@ fun MainScreen() {
                         if (!isStartup) {
                             searchFeedbackMessage =
                                 "Search refresh failed. Showing the previous results."
+                        } else {
+                            navigationStatusMessage = if (startPlayback) null else "Stopped"
                         }
 
                         if (startPlayback) {
@@ -834,6 +867,8 @@ fun MainScreen() {
                         if (!isStartup) {
                             searchFeedbackMessage =
                                 "No stations found for “$searchQuery”."
+                        } else if (!radioPlayer.isPlaying) {
+                            navigationStatusMessage = "Stopped"
                         }
                     }
                 }
@@ -1208,19 +1243,7 @@ fun MainScreen() {
     }
 
     LaunchedEffect(Unit) {
-        // Wait for the UI to be fully interactive before background work
-        delay(1500)
-
-        // Pre-validate navigation searches one-by-one to prevent startup freeze
-        savedSearchCategories
-            .filter { it.navigationEnabled }
-            .forEach { saved ->
-                if (saved.query != initiallyCurrentSearch?.query) {
-                    prefetchSearch(saved.query)
-                    delay(500) // Give each search a bit of breathing room
-                }
-            }
-
+        // Step 1: Restore the ACTIVE session first (No delay)
         if (
             initiallyCurrentSearch != null &&
             initiallyCurrentSearch.query.isNotBlank()
@@ -1249,6 +1272,17 @@ fun MainScreen() {
 
             startupRestoreComplete = true
         }
+
+        // Step 2: Background pre-fetches for other searches (Delayed)
+        delay(1500)
+        savedSearchCategories
+            .filter { it.navigationEnabled }
+            .forEach { saved ->
+                if (saved.query != initiallyCurrentSearch?.query) {
+                    prefetchSearch(saved.query)
+                    delay(500)
+                }
+            }
     }
 
     LaunchedEffect(Unit) {
@@ -1348,6 +1382,24 @@ fun MainScreen() {
             radioPlayer.onStationFailed = null
             radioPlayer.release()
             announcementManager.shutdown()
+        }
+    }
+
+    // VOICE ALERTS: Speak network or category issues
+    LaunchedEffect(radioPlayer.errorMessage) {
+        radioPlayer.errorMessage?.let { message ->
+            if (message.contains("Network lost", ignoreCase = true)) {
+                announcementManager.speak("Network connection lost. Waiting.")
+            } else if (message.contains("signal too weak", ignoreCase = true)) {
+                announcementManager.speak("Poor signal. Pausing auto-advance.")
+            } else if (message.contains("Trying next station", ignoreCase = true)) {
+                announcementManager.speak("Station unavailable. Finding next.")
+            } else if (message.contains("Trying next category", ignoreCase = true)) {
+                announcementManager.speak("Category unavailable. Trying next category.")
+                // Give the voice a moment to finish before jumping categories
+                delay(1000)
+                changeCategory(direction = 1)
+            }
         }
     }
 
@@ -1622,8 +1674,8 @@ fun MainScreen() {
                 displayedStationIndex = displayedStationIndex,
                 displayedStationCount = displayedStationCount,
                 categoryIsSearch = sessionState.isSearch,
-                isPlaying = isPlaying,
-                playbackRequested = playbackRequested,
+                isPlaying = isPlaying && !isRestoringInitialPlayback,
+                playbackRequested = playbackRequested || isRestoringInitialPlayback,
                 startupRestoreComplete = startupRestoreComplete,
                 libraryHasCategories = libraryHasCategories,
                 sessionHasStations = sessionState.hasStations,
@@ -1635,7 +1687,7 @@ fun MainScreen() {
                 onPowerClick = {
                     radioPlayer.stop()
                     appPreferences.saveWasPlaying(false)
-                    navigationStatusMessage = "Playback stopped."
+                    navigationStatusMessage = "Stopped"
                 },
                 onSearchResultLimitChanged = { newLimit ->
                     searchResultLimit = newLimit
@@ -1687,6 +1739,11 @@ fun MainScreen() {
                         musicRepository.categories.setNavigation(
                             category.id,
                             !category.includedInNavigation
+                        )
+                        appPreferences.savePermanentLibrary(
+                            categoryRepository = musicRepository.categories,
+                            stationRepository = musicRepository.stations,
+                            membershipRepository = musicRepository.memberships
                         )
                         stationStateVersion++
                     } else {

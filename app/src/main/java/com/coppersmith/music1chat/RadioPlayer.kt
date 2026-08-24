@@ -9,6 +9,8 @@ import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -144,6 +146,7 @@ class RadioPlayer(
     }
 
     private val playerListener = object : Player.Listener {
+
         override fun onMediaMetadataChanged(mediaMetadata: MediaMetadata) {
             val request = matchingActiveRequest() ?: return
 
@@ -168,15 +171,6 @@ class RadioPlayer(
             )
         }
 
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            val request = activeRequest ?: return
-            val transitionedMediaId = mediaItem?.mediaId.orEmpty()
-
-            if (transitionedMediaId.isNotBlank() && transitionedMediaId != request.mediaId) {
-                return
-            }
-        }
-
         override fun onIsPlayingChanged(playing: Boolean) {
             val request = matchingActiveRequest() ?: return
 
@@ -193,6 +187,10 @@ class RadioPlayer(
                 playbackRequested = true
                 activeRequestHasPlayed = true
                 cancelStallWatchdog()
+                
+                // RESET GRUDGES: If we play successfully, clear the failure counts.
+                rapidFailureCount = 0 
+                
                 if (request.generation == playbackNavGeneration) {
                     val elapsed = System.currentTimeMillis() - playbackStartTime
                     RideLogger.log("STATION_PLAYING station='${request.station.name}' elapsed=$elapsed")
@@ -232,17 +230,28 @@ class RadioPlayer(
 
             isPlaying = false
             cancelStallWatchdog()
+            
             val failedStation = request.station
+            
+            // LIE DETECTOR: Check if the phone actually has internet
+            val connectivityManager = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val network = connectivityManager.activeNetwork
+            val capabilities = connectivityManager.getNetworkCapabilities(network)
+            val actuallyHasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 
-            if (isTemporaryNetworkFailure(error)) {
+            if (isTemporaryNetworkFailure(error) && !actuallyHasInternet) {
+                // TRULY NO INTERNET - Show waiting message
                 failedStation.failedThisSession = false
-                errorMessage = "Network connection lost while playing ${failedStation.name}. " +
-                        "Music1Chat will keep trying in the background."
+                cancelStartupWatchdog() 
+                
+                errorMessage = "Network lost. Waiting for connection to play ${failedStation.name}…"
+                RideLogger.log("NETWORK_WAIT station='${failedStation.name}' error='${error.errorCodeName}'")
                 return
             }
 
-            errorMessage = "Unable to play ${failedStation.name}. ${error.errorCodeName}: " +
-                    (error.message ?: "Unknown playback error.")
+            // THE STATION IS LYING OR BROKEN - Advance immediately
+            errorMessage = "Station unavailable. Trying next station."
+            RideLogger.log("STATION_FAILURE_JUMP station='${failedStation.name}' error='${error.errorCodeName}' internet=$actuallyHasInternet")
 
             failedStation.failedThisSession = true
             scheduleRetryEligibility(failedStation)
@@ -398,6 +407,9 @@ class RadioPlayer(
         stallWatchdogJob = null
     }
 
+    private var lastFailureTime = 0L
+    private var rapidFailureCount = 0
+
     private fun startStartupWatchdog(request: PlaybackRequest, mediaController: MediaController) {
         cancelStartupWatchdog()
         startupWatchdogJob = resolverScope.launch {
@@ -409,6 +421,26 @@ class RadioPlayer(
                     isPlaying ||
                     activeRequestHasPlayed
                 ) {
+                    return@withContext
+                }
+
+                // CHECK FOR RAPID FIRE FAILURES (Likely Network Dead Zone)
+                val now = System.currentTimeMillis()
+                if (now - lastFailureTime < 20_000) { // Extended window
+                    rapidFailureCount++
+                } else {
+                    rapidFailureCount = 1
+                }
+                lastFailureTime = now
+
+                if (rapidFailureCount >= 5) { // More attempts allowed
+                    RideLogger.log("NETWORK_SAFETY_TRIGGERED count=$rapidFailureCount")
+                    
+                    // STOP and wait for the user or the network.
+                    errorMessage = "Network signal too weak. Pausing auto-advance."
+                    playbackRequested = false
+                    
+                    rapidFailureCount = 0
                     return@withContext
                 }
 
@@ -586,8 +618,8 @@ class RadioPlayer(
     }
 
     companion object {
-        private const val STARTUP_TIMEOUT_MILLISECONDS = 3_500L
-        private const val STALL_FAILURE_TIMEOUT_MILLISECONDS = 10_000L
+        private const val STARTUP_TIMEOUT_MILLISECONDS = 12_000L // Relaxed from 3.5s to 12s
+        private const val STALL_FAILURE_TIMEOUT_MILLISECONDS = 15_000L // Relaxed from 10s to 15s
         private const val FAILED_STATION_RETRY_DELAY_MILLISECONDS = 15 * 60 * 1000L
         const val TEST_STREAM_URL = "https://ice5.somafm.com/groovesalad-128-mp3"
     }

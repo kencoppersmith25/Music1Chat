@@ -37,7 +37,13 @@ class Session(
         promoteToFront: Boolean = true
     ): SessionSaveResult {
         if (state.isSearch) {
-            preferences.saveWasPlaying(wasPlaying)
+            // CRITICAL: Clear the library selection when saving a search state.
+            // This prevents "Ghost Categories" from playing on startup.
+            preferences.savePlaybackState(
+                categoryId = null,
+                stationId = null,
+                wasPlaying = wasPlaying
+            )
 
             val query = state.categoryName.ifBlank {
                 activeSearchQuery.orEmpty()

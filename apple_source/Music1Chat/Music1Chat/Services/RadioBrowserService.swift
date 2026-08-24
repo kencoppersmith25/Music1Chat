@@ -42,7 +42,7 @@ struct RadioBrowserService {
     ) async throws -> [RadioBrowserStation] {
         let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if trimmed.isEmpty {
+        guard !trimmed.isEmpty else {
             throw RadioBrowserServiceError.invalidSearch
         }
 
@@ -80,21 +80,33 @@ struct RadioBrowserService {
         text: String,
         finalLimit: Int
     ) async throws -> [RadioBrowserStation] {
-
-        async let nameResults = fetch(baseURL: baseURL, field: "name", text: text)
-        async let tagResults = fetch(baseURL: baseURL, field: "tag", text: text)
-
+        let normalized = text.lowercased()
         var collected: [RadioBrowserStation] = []
         var successfulRequestCount = 0
 
-        if let results = try? await nameResults {
-            collected.append(contentsOf: results)
-            successfulRequestCount += 1
-        }
+        try await withTaskGroup(of: [RadioBrowserStation].self) { group in
+            // 1. Core Searches
+            group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: text, limit: finalLimit)) ?? [] }
+            group.addTask { (try? await self.fetch(baseURL: baseURL, field: "tag", text: text, limit: finalLimit)) ?? [] }
 
-        if let results = try? await tagResults {
-            collected.append(contentsOf: results)
-            successfulRequestCount += 1
+            // 2. Ultra Hawaiian Synergy
+            if normalized.contains("hawai") {
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "state", text: "Hawaii", limit: 30)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "tag", text: "hawaiian", limit: 30)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Honolulu", limit: 30)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Maui", limit: 20)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Kauai", limit: 15)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Kona", limit: 15)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Aloha", limit: 15)) ?? [] }
+                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Hawaii Music Live", limit: 10)) ?? [] }
+            }
+
+            for await results in group {
+                if !results.isEmpty {
+                    collected.append(contentsOf: results)
+                    successfulRequestCount += 1
+                }
+            }
         }
 
         guard successfulRequestCount > 0 else {
@@ -144,7 +156,6 @@ struct RadioBrowserService {
             if result[safeIndex] == nil {
                 result[safeIndex] = stations[i]
             } else {
-                // Collision fallback: find next empty slot
                 for j in 0..<count {
                     let fallbackIndex = (safeIndex + j) % count
                     if result[fallbackIndex] == nil {
@@ -161,7 +172,8 @@ struct RadioBrowserService {
     private func fetch(
         baseURL: URL,
         field: String,
-        text: String
+        text: String,
+        limit: Int
     ) async throws -> [RadioBrowserStation] {
 
         var components = URLComponents(
@@ -174,7 +186,8 @@ struct RadioBrowserService {
             URLQueryItem(name: "\(field)Exact", value: "false"),
             URLQueryItem(name: "hidebroken", value: "true"),
             URLQueryItem(name: "order", value: "clickcount"),
-            URLQueryItem(name: "reverse", value: "true")
+            URLQueryItem(name: "reverse", value: "true"),
+            URLQueryItem(name: "limit", value: "\(limit)")
         ]
 
         guard let url = components?.url else {

@@ -39,8 +39,22 @@ class LiveStationSearchEngine(
                 limit = (limit * 3).coerceAtMost(100)
             )
 
+        // SYNERGY SEARCH: If the query is "Hawaii" or "Hawaiian", find everything on the islands.
+        val synergyStations = if (normalizedQuery.contains("hawai")) {
+             radioBrowserClient.search(query = "Honolulu", limit = 30) + 
+             radioBrowserClient.search(query = "Maui", limit = 20) +
+             radioBrowserClient.search(query = "Kauai", limit = 15) +
+             radioBrowserClient.search(query = "Kona", limit = 15) +
+             radioBrowserClient.search(query = "Aloha", limit = 15) +
+             radioBrowserClient.search(query = "Hawaii Music Live", limit = 10)
+        } else {
+            emptyList()
+        }
+
+        val allCandidateStations = radioBrowserStations + synergyStations
+
         val rankedStations =
-            radioBrowserStations
+            allCandidateStations
                 .mapNotNull { radioStation ->
                     val relevanceScore =
                         radioStation.calculateRelevanceScore(
@@ -143,6 +157,11 @@ class LiveStationSearchEngine(
                 phrase = normalizedQuery
             ) -> {
                 score += 500
+            }
+
+            normalizedState.contains(normalizedQuery) -> {
+                // If the STATE matches (e.g. Hawaii), give it a huge boost!
+                score += 700
             }
         }
 

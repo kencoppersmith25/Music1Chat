@@ -196,14 +196,33 @@ class Search(
                 .onEach { station ->
                     station.includedInNavigation = true
                 }
+                // PASS 1: Strict ID De-duplication
+                .distinctBy { it.id }
+                // PASS 2: Stream URL De-duplication (Ignore http/https and parameters)
                 .distinctBy { station ->
                     station.resolvedStreamUrl
                         .ifBlank { station.streamUrl }
                         .trim()
                         .lowercase()
-                        .ifBlank {
-                            station.name.trim().lowercase()
-                        }
+                        .removePrefix("http://")
+                        .removePrefix("https://")
+                        .removePrefix("www.")
+                        .split('?')[0]
+                        .trimEnd('/')
+                }
+                // PASS 3: Fuzzy Name De-duplication (Catch "KMNO" vs "KMNO Maui")
+                .distinctBy { station ->
+                    station.name
+                        .trim()
+                        .lowercase()
+                        .replace(" radio", "")
+                        .replace(" music", "")
+                        .replace(" maui", "")
+                        .replace(" honolulu", "")
+                        .replace(" fm", "")
+                        .replace(" am", "")
+                        .replace(Regex("[^a-z0-9]+"), "")
+                        .take(8) // Use a shorter root for higher sensitivity
                 }
                 .take(limit)
 

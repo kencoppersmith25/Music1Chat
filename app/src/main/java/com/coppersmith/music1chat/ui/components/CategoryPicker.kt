@@ -53,6 +53,7 @@ import androidx.compose.ui.text.input.ImeAction
 fun CategoryPicker(
     title: String,
     searchText: String,
+    proposedName: String = "",
     categories: List<Category>,
     suggestedCategoryNames: List<String>,
     stationCountForCategory: (Category) -> Int,
@@ -62,23 +63,29 @@ fun CategoryPicker(
 ) {
     /*
      * The picker is often opened with a useful proposed destination already
-     * in searchText, such as "Classical". That initial value should rank the
-     * matching category first, but it must not hide Hawaiian, 60s, 70s, etc.
-     * Once the user edits the field, normal filtering begins.
+     * in proposedName, such as "Classical". That initial value should rank the
+     * matching category first.
+     * The searchText starts empty so the user can just type.
      */
 
     val focusManager = LocalFocusManager.current
-    val initialSearchText = remember { searchText.trim() }
+    
+    // UX FIX: The picker text field now starts empty to allow instant typing.
+    // We still use proposedName (e.g. "Classical") to filter/rank the list.
+    val initialSearchText = remember { proposedName.trim() }
 
     val pickerItems = remember(
         searchText,
+        proposedName,
         initialSearchText,
         categories,
         suggestedCategoryNames
     ) {
         val typedText = searchText.trim()
+        val displaySearchText = typedText.ifBlank { proposedName.trim() }
+        
         val isInitialText =
-            typedText.equals(initialSearchText, ignoreCase = true)
+            displaySearchText.equals(initialSearchText, ignoreCase = true)
 
         val allCategoryNames =
             (categories.map { category -> category.name } +
@@ -90,10 +97,10 @@ fun CategoryPicker(
 
         val matchingNames =
             when {
-                typedText.isBlank() || isInitialText -> {
+                displaySearchText.isBlank() || isInitialText -> {
                     buildList {
-                        if (typedText.isNotBlank()) {
-                            add(typedText)
+                        if (displaySearchText.isNotBlank()) {
+                            add(displaySearchText)
                         }
                         addAll(allCategoryNames)
                     }
@@ -118,9 +125,9 @@ fun CategoryPicker(
 
         matchingNames.sortedWith(
             compareByDescending<String> { name ->
-                typedText.isNotBlank() &&
+                displaySearchText.isNotBlank() &&
                         name.equals(
-                            typedText,
+                            displaySearchText,
                             ignoreCase = true
                         )
             }.thenByDescending { name ->

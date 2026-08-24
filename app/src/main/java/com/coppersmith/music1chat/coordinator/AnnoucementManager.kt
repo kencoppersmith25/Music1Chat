@@ -75,13 +75,17 @@ class AnnouncementManager(
             return
         }
 
+        speak(cleanCategoryName)
+    }
+
+    fun speak(text: String) {
         // Reload the saved voice in case it was changed in Settings while
         // this long-lived manager remained active.
         announcer.selectVoiceForSession(
             preferences.loadCategoryAnnouncementVoiceId()
         )
 
-        announcer.testVoice(cleanCategoryName)
+        announcer.testVoice(text)
     }
 
     fun previewVoice(
