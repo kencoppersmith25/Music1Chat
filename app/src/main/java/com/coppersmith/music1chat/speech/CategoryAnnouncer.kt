@@ -9,6 +9,7 @@ package com.coppersmith.music1chat.speech
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
 import com.coppersmith.music1chat.persistence.AppPreferences
 import java.util.Locale
@@ -27,10 +28,16 @@ class CategoryAnnouncer(
     context: Context
 ) : TextToSpeech.OnInitListener {
 
+    /**
+     * Callback for audio ducking coordination.
+     * isSpeaking = true: Lower the music volume.
+     * isSpeaking = false: Restore the music volume.
+     */
+    var onSpeechStatusChanged: ((isSpeaking: Boolean) -> Unit)? = null
+
+    private val appContext = context.applicationContext
     private val appPreferences =
-        AppPreferences(
-            context.applicationContext
-        )
+        AppPreferences(appContext)
 
     private var textToSpeech: TextToSpeech? = null
 
@@ -64,16 +71,6 @@ class CategoryAnnouncer(
         initializationSucceeded =
             status == TextToSpeech.SUCCESS
 
-        android.util.Log.d(
-            "KenVoice",
-            "TTS init status=$status success=$initializationSucceeded"
-        )
-
-        android.util.Log.d(
-            "KenVoice",
-            "TTS init status = $status"
-        )
-
         if (!initializationSucceeded) {
             pendingUtterance = null
             return
@@ -81,6 +78,29 @@ class CategoryAnnouncer(
 
         val engine =
             textToSpeech ?: return
+
+        engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) {
+                onSpeechStatusChanged?.invoke(true)
+            }
+
+            override fun onDone(utteranceId: String?) {
+                onSpeechStatusChanged?.invoke(false)
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) {
+                onSpeechStatusChanged?.invoke(false)
+            }
+
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                onSpeechStatusChanged?.invoke(false)
+            }
+
+            override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                onSpeechStatusChanged?.invoke(false)
+            }
+        })
 
         val languageResult =
             engine.setLanguage(

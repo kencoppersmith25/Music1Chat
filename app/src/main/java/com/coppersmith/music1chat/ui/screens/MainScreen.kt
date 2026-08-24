@@ -222,7 +222,15 @@ fun MainScreen() {
     }
 
     val announcementManager = remember {
-        AnnouncementManager(context.applicationContext)
+        AnnouncementManager(context.applicationContext).apply {
+            onSpeechStatusChanged = { isSpeaking ->
+                if (isSpeaking) {
+                    radioPlayer.setVolume(0.2f) // Duck to 20% volume
+                } else {
+                    radioPlayer.setVolume(1.0f) // Restore to 100% volume
+                }
+            }
+        }
     }
 
     var rideLogActive by remember {

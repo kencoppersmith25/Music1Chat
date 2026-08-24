@@ -176,10 +176,12 @@ class RadioPlayer(
 
             isPlaying = playing
 
+            val state = controller?.playbackState
+
             RideLogger.log(
                 "IS_PLAYING_CHANGED " +
                         "playing=$playing " +
-                        "state=${controller?.playbackState} " +
+                        "state=$state " +
                         "requested=$playbackRequested"
             )
 
@@ -203,9 +205,17 @@ class RadioPlayer(
             } else if (
                 playbackRequested &&
                 activeRequestHasPlayed &&
-                controller?.playbackState == Player.STATE_BUFFERING
+                state == Player.STATE_BUFFERING
             ) {
                 startStallWatchdog(request)
+            } else if (
+                playbackRequested &&
+                activeRequestHasPlayed &&
+                state == Player.STATE_ENDED
+            ) {
+                // AUTO-ADVANCE ON END: Some streams are files that finish.
+                RideLogger.log("STATION_ENDED station='${request.station.name}'")
+                onStationFailed?.invoke(request.station)
             }
         }
 
@@ -269,7 +279,13 @@ class RadioPlayer(
         play(station = station, source = PlaybackSource.NAVIGATION)
     }
 
-
+    /**
+     * Smoothly sets the player volume.
+     * Use values between 0.0f (silent) and 1.0f (full volume).
+     */
+    fun setVolume(volume: Float) {
+        controller?.volume = volume.coerceIn(0f, 1f)
+    }
 
     fun play(station: Station, source: PlaybackSource) {
         val request = createPlaybackRequest(station = station, source = source)

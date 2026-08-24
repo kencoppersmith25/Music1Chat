@@ -24,6 +24,12 @@ class AnnouncementManager(
     private val announcer =
         CategoryAnnouncer(appContext)
 
+    var onSpeechStatusChanged: ((isSpeaking: Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            announcer.onSpeechStatusChanged = value
+        }
+
     private var suppressNextAnnouncement = false
 
     init {
