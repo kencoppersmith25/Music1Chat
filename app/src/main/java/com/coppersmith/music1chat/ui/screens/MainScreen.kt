@@ -1856,9 +1856,9 @@ fun MainScreen() {
                     } else {
                         navigationStatusMessage =
                             if (!libraryHasCategories) {
-                                "No categories yet. Type in the Search box above to find stations and get started!"
+                                "No categories yet. Search to find stations!\n\nTIP: Say \"Hey Google, Play\", \"Stop\", \"Next\" or \"Previous\" to control hands-free."
                             } else {
-                                "No stations are available."
+                                "No stations available.\n\nTIP: Say \"Hey Google, Play\", \"Stop\", \"Next\" or \"Previous\" to control hands-free."
                             }
                     }
                 },

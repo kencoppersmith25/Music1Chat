@@ -11,7 +11,7 @@ No Hands Radio is the world’s most accessible radio app, specifically designed
 
 KEY FEATURES:
 
-• TRULY HANDS-FREE: Fully integrated with Siri voice commands. Keep your hands on the wheel or bars and your eyes on the road. Simply say "Siri, Next" or "Siri, Previous" to skip through stations and categories.
+• TRULY HANDS-FREE: Fully integrated with Siri voice commands. Keep your hands on the wheel or bars and your eyes on the road. Simply say "Siri, Play", "Siri, Stop", "Siri, Next", or "Siri, Previous" to control stations and categories hands-free.
 
 • A WORLD OF MUSIC: Access over 50,000 live stations from every corner of the globe. Explore curated genres ranging from Classical and Jazz to global favorites like Israeli, Indian, French, and Hawaiian radio.
 
