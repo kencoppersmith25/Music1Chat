@@ -1834,10 +1834,9 @@ fun MainScreen() {
                         } else {
                             "Move to category"
                         }
-                    destinationCategorySearchText =
-                        sessionState.categoryName
-                            .ifBlank { sourceStation.genre }
-                            .trim()
+                    // UX FIX: Start with a completely empty search box. 
+                    // No more backspacing required!
+                    destinationCategorySearchText = ""
                 },
                 onStationCopyClick = {
                     val station = displayedStation
