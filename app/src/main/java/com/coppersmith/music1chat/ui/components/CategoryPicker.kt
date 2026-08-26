@@ -14,8 +14,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -185,11 +187,21 @@ fun CategoryPicker(
                     placeholder = {
                         Text("Find a category")
                     },
-                    trailingIcon = {
+                    leadingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
-                            contentDescription = "Find category"
+                            contentDescription = null
                         )
+                    },
+                    trailingIcon = {
+                        if (searchText.isNotEmpty()) {
+                            IconButton(onClick = { onSearchTextChanged("") }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Clear text"
+                                )
+                            }
+                        }
                     },
                     keyboardOptions = KeyboardOptions(
                         imeAction = ImeAction.Done

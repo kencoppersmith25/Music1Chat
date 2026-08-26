@@ -1894,6 +1894,7 @@ fun MainScreen() {
             CategoryPicker(
                 title = destinationCategoryPickerTitle,
                 searchText = destinationCategorySearchText,
+                proposedName = sessionState.categoryName.trim(),
                 categories = musicRepository.categories.getAll().filter { category ->
                     // BUG FIX: Hide the current category from the "Save/Move" list
                     // If the session is a SEARCH, we allow all categories.
