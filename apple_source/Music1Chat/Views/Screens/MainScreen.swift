@@ -1573,7 +1573,7 @@ struct MainScreen: View {
 // MARK: - AdMob Banner View
 
 private struct AdMobBannerView: UIViewRepresentable {
-    private let productionAdUnitID = "ca-app-pub-6232643827829257/2486278674"
+    private let productionAdUnitID = "ca-app-pub-6232643827829257/3475698773"
 
     func makeUIView(context: Context) -> BannerView {
         MobileAds.shared.start()

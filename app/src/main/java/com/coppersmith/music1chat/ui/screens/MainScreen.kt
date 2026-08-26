@@ -1395,17 +1395,30 @@ fun MainScreen() {
         }
     }
 
-    // VOICE ALERTS: Speak network or category issues
+    // VOICE ALERTS: Speak network or category issues with a "Muzzle" to prevent spam
+    val lastAlertTimes = remember { mutableMapOf<String, Long>() }
+    val ALERT_DEBOUNCE_MS = 300_000L // 5 minutes
+
     LaunchedEffect(radioPlayer.errorMessage) {
         radioPlayer.errorMessage?.let { message ->
+            val now = System.currentTimeMillis()
+            
+            fun speakWithMuzzle(alertKey: String, text: String) {
+                val lastTime = lastAlertTimes[alertKey] ?: 0L
+                if (now - lastTime > ALERT_DEBOUNCE_MS) {
+                    announcementManager.speak(text)
+                    lastAlertTimes[alertKey] = now
+                }
+            }
+
             if (message.contains("Network lost", ignoreCase = true)) {
-                announcementManager.speak("Network connection lost. Waiting.")
+                speakWithMuzzle("network", "Network connection lost. Waiting.")
             } else if (message.contains("signal too weak", ignoreCase = true)) {
-                announcementManager.speak("Poor signal. Pausing auto-advance.")
+                speakWithMuzzle("signal", "Poor signal. Pausing auto-advance.")
             } else if (message.contains("Trying next station", ignoreCase = true)) {
-                announcementManager.speak("Station unavailable. Finding next.")
+                speakWithMuzzle("station", "Station unavailable. Finding next.")
             } else if (message.contains("Trying next category", ignoreCase = true)) {
-                announcementManager.speak("Category unavailable. Trying next category.")
+                speakWithMuzzle("category", "Category unavailable. Trying next category.")
                 // Give the voice a moment to finish before jumping categories
                 delay(1000)
                 changeCategory(direction = 1)

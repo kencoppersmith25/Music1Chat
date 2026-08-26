@@ -17,7 +17,7 @@ fun AdBanner(modifier: Modifier = Modifier) {
                 // Use the standard Google Test Banner ID
                 setAdSize(AdSize.BANNER)
 
-                adUnitId = "ca-app-pub-6232643827829257/2486278674"
+                adUnitId = "ca-app-pub-6232643827829257/3475698773"
                 loadAd(AdRequest.Builder().build())
             }
         }

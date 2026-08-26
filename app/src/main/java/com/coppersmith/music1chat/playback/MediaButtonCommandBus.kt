@@ -25,8 +25,26 @@ object MediaButtonCommandBus {
     val commands: SharedFlow<MediaButtonCommand> =
         mutableCommands.asSharedFlow()
 
+    private var lastCommandTimes = mutableMapOf<MediaButtonCommand, Long>()
+    private const val DEBOUNCE_MS = 500L // Ignore commands faster than 0.5 seconds
+
     fun send(command: MediaButtonCommand) {
+        val now = System.currentTimeMillis()
+        val lastTime = lastCommandTimes[command] ?: 0L
+
+        // Apply "Human Speed Filter" to navigation commands
+        if (command != MediaButtonCommand.TOGGLE_PLAYBACK) {
+            if (now - lastTime < DEBOUNCE_MS) {
+                android.util.Log.w(
+                    "CommandBus",
+                    "Debounced rapid-fire command: $command (delta: ${now - lastTime}ms)"
+                )
+                return
+            }
+        }
+
         val emitted = mutableCommands.tryEmit(command)
+        lastCommandTimes[command] = now
 
         android.util.Log.d(
             "KenCheck",
