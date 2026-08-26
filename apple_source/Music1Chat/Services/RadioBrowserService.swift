@@ -20,10 +20,11 @@ enum RadioBrowserServiceError: LocalizedError {
 struct RadioBrowserService {
     private let baseURLs: [URL] = [
         "https://de1.api.radio-browser.info",
-        "https://all.api.radio-browser.info",
-        "https://de2.api.radio-browser.info",
-        "https://fi1.api.radio-browser.info",
-        "https://nl1.api.radio-browser.info"
+        "https://at1.api.radio-browser.info",
+        "https://fr1.api.radio-browser.info",
+        "https://nl1.api.radio-browser.info",
+        "http://de1.api.radio-browser.info", // Fallback to HTTP for TLS issues
+        "http://at1.api.radio-browser.info"
     ].compactMap { (str: String) -> URL? in URL(string: str) }
 
     private let session: URLSession
