@@ -225,7 +225,7 @@ fun MainScreen() {
         AnnouncementManager(context.applicationContext).apply {
             onSpeechStatusChanged = { isSpeaking ->
                 if (isSpeaking) {
-                    radioPlayer.setVolume(0.05f) // Duck to 5% volume for clarity
+                    radioPlayer.setVolume(0.0f) // MUTE the music completely for wind clarity
                 } else {
                     radioPlayer.setVolume(1.0f) // Restore to 100% volume
                 }

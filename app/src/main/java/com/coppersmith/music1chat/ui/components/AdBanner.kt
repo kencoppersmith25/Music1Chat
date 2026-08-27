@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import com.coppersmith.music1chat.AdConfig
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
@@ -14,10 +15,9 @@ fun AdBanner(modifier: Modifier = Modifier) {
         modifier = modifier.fillMaxWidth(),
         factory = { context ->
             AdView(context).apply {
-                // Use the standard Google Test Banner ID
                 setAdSize(AdSize.BANNER)
 
-                adUnitId = "ca-app-pub-6232643827829257/3475698773"
+                adUnitId = AdConfig.ANDROID_BANNER_ID
                 loadAd(AdRequest.Builder().build())
             }
         }

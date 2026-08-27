@@ -281,9 +281,13 @@ class CategoryAnnouncer(
         engine.setSpeechRate(0.92f)
         engine.setPitch(1.0f)
 
+        // Adding leading silence markers ("...") helps Bluetooth headsets wake up
+        // before the actual word starts.
+        val paddedText = "... $text"
+
         val result =
             engine.speak(
-                text,
+                paddedText,
                 TextToSpeech.QUEUE_FLUSH,
                 null,
                 "music1chat-category-$now"
