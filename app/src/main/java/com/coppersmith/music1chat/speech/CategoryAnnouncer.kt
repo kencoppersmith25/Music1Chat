@@ -81,23 +81,28 @@ class CategoryAnnouncer(
 
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {
+                android.util.Log.d("KenVoice", "Speech START: $utteranceId")
                 onSpeechStatusChanged?.invoke(true)
             }
 
             override fun onDone(utteranceId: String?) {
+                android.util.Log.d("KenVoice", "Speech DONE: $utteranceId")
                 onSpeechStatusChanged?.invoke(false)
             }
 
             @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
+                android.util.Log.e("KenVoice", "Speech ERROR: $utteranceId")
                 onSpeechStatusChanged?.invoke(false)
             }
 
             override fun onError(utteranceId: String?, errorCode: Int) {
+                android.util.Log.e("KenVoice", "Speech ERROR: $utteranceId code=$errorCode")
                 onSpeechStatusChanged?.invoke(false)
             }
 
             override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                android.util.Log.d("KenVoice", "Speech STOP: $utteranceId interrupted=$interrupted")
                 onSpeechStatusChanged?.invoke(false)
             }
         })
