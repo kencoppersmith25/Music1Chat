@@ -10,67 +10,60 @@ final class Music1ChatSettings: ObservableObject {
         case previousStation
 
         var id: String { rawValue }
-    }
 
-    @Published var maximumSearchResults: Int {
-        didSet {
-            let clamped = min(max(maximumSearchResults, 5), 100)
-            if clamped != maximumSearchResults {
-                maximumSearchResults = clamped
-                return
+        var displayTitle: String {
+            switch self {
+            case .nextCategory:
+                return "Previous category"
+            case .previousStation:
+                return "Previous station in category"
             }
-            defaults.set(maximumSearchResults, forKey: Keys.maximumSearchResults)
         }
     }
 
-    @Published var categoryAnnouncementsEnabled: Bool {
-        didSet {
-            defaults.set(categoryAnnouncementsEnabled, forKey: Keys.categoryAnnouncementsEnabled)
-        }
-    }
-
-    @Published var categoryVoiceIdentifier: String? {
-        didSet {
-            defaults.set(categoryVoiceIdentifier, forKey: Keys.categoryVoiceIdentifier)
-        }
-    }
-
-    @Published var previousTrackBehavior: PreviousTrackBehavior {
-        didSet {
-            defaults.set(previousTrackBehavior.rawValue, forKey: Keys.previousTrackBehavior)
-        }
+    private enum Keys {
+        static let maximumSearchResults = "maximum_search_results"
+        static let categoryAnnouncementsEnabled = "category_announcements_enabled"
+        static let categoryVoiceIdentifier = "category_voice_identifier"
+        static let previousTrackBehavior = "previous_track_behavior"
+        static let feedbackSoundsEnabled = "feedback_sound_enabled"
+        static let developerModeActive = "developer_mode_active"
     }
 
     private let defaults: UserDefaults
 
-    private enum Keys {
-        static let maximumSearchResults = "Music1Chat.Settings.MaximumSearchResults"
-        static let categoryAnnouncementsEnabled = "Music1Chat.Settings.CategoryAnnouncementsEnabled"
-        static let categoryVoiceIdentifier = "Music1Chat.Settings.CategoryVoiceIdentifier"
-        static let previousTrackBehavior = "Music1Chat.Settings.PreviousTrackBehavior"
+    @Published var maximumSearchResults: Int {
+        didSet { defaults.set(maximumSearchResults, forKey: Keys.maximumSearchResults) }
     }
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
+    @Published var categoryAnnouncementsEnabled: Bool {
+        didSet { defaults.set(categoryAnnouncementsEnabled, forKey: Keys.categoryAnnouncementsEnabled) }
+    }
 
-        let savedMaximum = defaults.integer(forKey: Keys.maximumSearchResults)
-        maximumSearchResults = savedMaximum == 0 ? 50 : min(max(savedMaximum, 5), 100)
-
-        if defaults.object(forKey: Keys.categoryAnnouncementsEnabled) == nil {
-            categoryAnnouncementsEnabled = true
-        } else {
-            categoryAnnouncementsEnabled = defaults.bool(forKey: Keys.categoryAnnouncementsEnabled)
+    @Published var categoryVoiceIdentifier: String? {
+        didSet {
+            if let id = categoryVoiceIdentifier {
+                defaults.set(id, forKey: Keys.categoryVoiceIdentifier)
+            } else {
+                defaults.removeObject(forKey: Keys.categoryVoiceIdentifier)
+            }
         }
+    }
 
-        categoryVoiceIdentifier = defaults.string(forKey: Keys.categoryVoiceIdentifier)
+    @Published var previousTrackBehavior: PreviousTrackBehavior {
+        didSet { defaults.set(previousTrackBehavior.rawValue, forKey: Keys.previousTrackBehavior) }
+    }
 
-        previousTrackBehavior = PreviousTrackBehavior(
-            rawValue: defaults.string(forKey: Keys.previousTrackBehavior) ?? ""
-        ) ?? .nextCategory
+    @Published var feedbackSoundsEnabled: Bool {
+        didSet { defaults.set(feedbackSoundsEnabled, forKey: Keys.feedbackSoundsEnabled) }
+    }
+
+    @Published var developerModeActive: Bool {
+        didSet { defaults.set(developerModeActive, forKey: Keys.developerModeActive) }
     }
 
     var selectedVoiceDisplayName: String {
-        guard let identifier = categoryVoiceIdentifier,
+        guard let identifier = categoryVoiceIdentifier, !identifier.isEmpty,
               let voice = AVSpeechSynthesisVoice(identifier: identifier) else {
             return "Phone Default"
         }
@@ -78,6 +71,25 @@ final class Music1ChatSettings: ObservableObject {
         let languageName = Locale.current.localizedString(forIdentifier: voice.language)
             ?? voice.language
         return "\(languageName) • \(voice.name)"
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+
+        let maxResults = defaults.integer(forKey: Keys.maximumSearchResults)
+        self.maximumSearchResults = maxResults > 0 ? maxResults : 50
+
+        self.categoryAnnouncementsEnabled = defaults.object(forKey: Keys.categoryAnnouncementsEnabled) as? Bool ?? true
+
+        self.categoryVoiceIdentifier = defaults.string(forKey: Keys.categoryVoiceIdentifier)
+
+        self.previousTrackBehavior = Music1ChatSettings.PreviousTrackBehavior(
+            rawValue: defaults.string(forKey: Keys.previousTrackBehavior) ?? ""
+        ) ?? .nextCategory
+
+        self.feedbackSoundsEnabled = defaults.object(forKey: Keys.feedbackSoundsEnabled) as? Bool ?? true
+
+        self.developerModeActive = defaults.bool(forKey: Keys.developerModeActive)
     }
 }
 
@@ -164,6 +176,8 @@ struct SettingsPanel: View {
 
     @EnvironmentObject private var player: AudioPlayerService
     @State private var showVoicePicker = false
+    @State private var developerModeActive = false
+    @State private var versionTapCount = 0
 
     var body: some View {
         ZStack {
@@ -186,9 +200,19 @@ struct SettingsPanel: View {
                     VStack(alignment: .leading, spacing: 22) {
                         searchSection
                         Divider()
+                        audioSection
+                        Divider()
                         voiceSection
                         Divider()
                         previousTrackSection
+
+                        if developerModeActive {
+                            Divider()
+                            diagnosticSection
+                        }
+
+                        Divider()
+                        aboutSection
                     }
                     .padding(.bottom, 8)
                 }
@@ -250,6 +274,24 @@ struct SettingsPanel: View {
         }
     }
 
+    private var audioSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Audio")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.purple)
+
+            Toggle(isOn: $settings.feedbackSoundsEnabled) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("System feedback sounds")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Play a gentle sound when skipping stations or starting playback.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
     private var voiceSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Voice")
@@ -293,18 +335,18 @@ struct SettingsPanel: View {
 
     private var previousTrackSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Voice Previous Track")
+            Text("Previous (Voice or Bluetooth button)")
                 .font(.system(size: 15, weight: .bold))
                 .foregroundStyle(.purple)
 
-            Text("Choose what happens when a headset, car, Lock Screen, or voice control sends Previous Track.")
+            Text("Choose what happens when you say “Siri, Previous” or press the Previous button on a Bluetooth device.")
                 .font(.system(size: 14))
                 .foregroundStyle(.secondary)
 
             radioRow(
                 behavior: .nextCategory,
                 title: "Next Category",
-                detail: "Recommended. Previous Track advances to the next category."
+                detail: "Recommended. Advancing to the next category."
             )
 
             Divider()
@@ -312,8 +354,98 @@ struct SettingsPanel: View {
             radioRow(
                 behavior: .previousStation,
                 title: "Previous Station",
-                detail: "Previous Track returns to the previous station."
+                detail: "Returning to the previous station."
             )
+        }
+    }
+
+    private var diagnosticSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Diagnostics")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.purple)
+
+            Button {
+                shareLog()
+            } label: {
+                HStack {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 20))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Share Ride Log")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Send technical logs to the developer for troubleshooting.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button(role: .destructive) {
+                RideLogger.shared.clearLog()
+            } label: {
+                HStack {
+                    Image(systemName: "trash.fill")
+                    Text("Clear Log")
+                }
+            }
+            .buttonStyle(.bordered)
+            .padding(.top, 4)
+        }
+    }
+
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("About")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.purple)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No Hands Radio")
+                    .font(.system(size: 18, weight: .semibold))
+                Text("The world’s most accessible radio app, designed for the ride.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+
+                Button {
+                    versionTapCount += 1
+                    if versionTapCount >= 5 {
+                        developerModeActive.toggle()
+                        versionTapCount = 0
+                    }
+                } label: {
+                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func shareLog() {
+        guard let url = RideLogger.shared.getLogURL() else { return }
+
+        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+
+            // For iPad compatibility
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = rootVC.view
+                popover.sourceRect = CGRect(x: rootVC.view.bounds.midX, y: rootVC.view.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+
+            rootVC.present(activityVC, animated: true)
         }
     }
 

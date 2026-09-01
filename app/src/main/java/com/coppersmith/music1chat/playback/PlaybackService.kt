@@ -68,6 +68,7 @@ class PlaybackService : MediaSessionService() {
     private var currentItemHasPlayed = false
     private var bufferingReconnectAttempted = false
     private var lastAttemptedMediaItems: List<MediaItem> = emptyList()
+    private var handlingCastSwitch = false
 
     private fun beginPlaybackAttempt() {
         playbackGeneration++
@@ -218,15 +219,26 @@ class PlaybackService : MediaSessionService() {
                 if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) || events.contains(Player.EVENT_IS_PLAYING_CHANGED)) {
                     val isActuallyPlaying = player.isPlaying
                     val isBuffering = player.playbackState == Player.STATE_BUFFERING
+                    val isReady = player.playbackState == Player.STATE_READY
 
-                    if (!isActuallyPlaying && !isBuffering && playbackRequested) {
+                    if (isActuallyPlaying || isReady) {
+                        if (handlingCastSwitch) {
+                            handlingCastSwitch = false
+                            exoPlayer.stop()
+                            exoPlayer.clearMediaItems()
+                            RideLogger.log("CAST_HANDOFF_SUCCESS: Stopping local player.")
+                        }
+                    }
+
+                    if (!isActuallyPlaying && !isBuffering && playbackRequested && !handlingCastSwitch) {
                         scheduleRecovery()
-                    } else {
+                    } else if (isActuallyPlaying || isBuffering) {
                         recoveryJob?.cancel()
                     }
                 }
 
                 if (events.contains(Player.EVENT_PLAYER_ERROR)) {
+                    handlingCastSwitch = false
                     returnToLocalPlayer()
                 }
             }
@@ -252,6 +264,14 @@ class PlaybackService : MediaSessionService() {
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             beginPlaybackAttempt()
+            this@PlaybackService.updateRemoteCommandAvailability()
+
+            // HANDOFF FIX: If we navigate while trying to cast, we must update the "restore list"
+            // so if the TV fails, we return to the NEW station, not the old one.
+            if (handlingCastSwitch || currentPlayer === castPlayer) {
+                lastAttemptedMediaItems = copyMediaItems(currentPlayer)
+            }
+
             RideLogger.log("PLAYER_TRANSITION reason=$reason station='${currentStationName()}' generation=$playbackGeneration")
         }
 
@@ -315,9 +335,12 @@ class PlaybackService : MediaSessionService() {
         override fun onPlayerError(error: PlaybackException) {
             RideLogger.log("PLAYER_ERROR code='${error.errorCodeName}' message='${error.message.orEmpty()}' station='${currentStationName()}'")
             if (currentPlayer === castPlayer) {
+                handlingCastSwitch = false
                 returnToLocalPlayer()
                 return
             }
+            if (handlingCastSwitch) return // Ignore local errors during handoff
+            
             if (isTemporaryNetworkFailure(error) && playbackRequested) {
                 scheduleNetworkRetry()
             }
@@ -345,11 +368,9 @@ class PlaybackService : MediaSessionService() {
         exoPlayer = ExoPlayer.Builder(this)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
-            .apply {
-                setAudioAttributes(audioAttributes, true)
-                setWakeMode(C.WAKE_MODE_NETWORK)
-            }
 
+        exoPlayer.setAudioAttributes(audioAttributes, true)
+        exoPlayer.setWakeMode(C.WAKE_MODE_NETWORK)
         exoPlayer.addListener(playerListener)
 
         assistantPlayer = AssistantCommandPlayer(exoPlayer)
@@ -399,16 +420,24 @@ class PlaybackService : MediaSessionService() {
     private fun beginCastHandoff() {
         val remotePlayer = castPlayer ?: return
         RideLogger.log("CAST_STARTING station='${currentStationName()}'")
+        handlingCastSwitch = true
 
         lastAttemptedMediaItems = copyMediaItems(exoPlayer)
-        if (lastAttemptedMediaItems.isEmpty()) return
+        if (lastAttemptedMediaItems.isEmpty()) {
+            handlingCastSwitch = false
+            return
+        }
 
         val currentIndex = exoPlayer.currentMediaItemIndex.coerceIn(0, lastAttemptedMediaItems.lastIndex)
         val currentPosition = exoPlayer.currentPosition
         val shouldPlay = exoPlayer.playWhenReady || exoPlayer.isPlaying
 
         try {
-            exoPlayer.stop()
+            // "Polite" Handoff: Dim volume instead of stopping immediately
+            if (exoPlayer.isPlaying) {
+                exoPlayer.volume = 0.25f 
+            }
+            
             mediaSession?.player = remotePlayer
 
             remotePlayer.stop()
@@ -419,10 +448,11 @@ class PlaybackService : MediaSessionService() {
             if (shouldPlay) {
                 remotePlayer.play()
             }
-            RideLogger.log("CAST_SWITCH_COMPLETE station='${currentStationName()}'")
+            RideLogger.log("CAST_SWITCH_INITIATED station='${currentStationName()}'")
 
         } catch (error: Exception) {
             RideLogger.log("CAST_HANDOFF_EXCEPTION message='${error.message}'")
+            handlingCastSwitch = false
             returnToLocalPlayer()
         }
     }
@@ -430,7 +460,7 @@ class PlaybackService : MediaSessionService() {
     private fun scheduleRecovery() {
         recoveryJob?.cancel()
         recoveryJob = playbackScope.launch {
-            delay(5000)
+            delay(12000) // Increased from 5s to 12s for better TV reliability
             if (currentPlayer === castPlayer && !castPlayer!!.isPlaying && playbackRequested) {
                 RideLogger.log("CAST_RECOVERY_TRIGGERED reason='silence timeout'")
                 returnToLocalPlayer()
@@ -455,7 +485,11 @@ class PlaybackService : MediaSessionService() {
         }
 
         val shouldPlay = playbackRequested || (remotePlayer?.isPlaying ?: false)
-        val currentIndex = remotePlayer?.currentMediaItemIndex?.coerceIn(0, itemsToRestore.size - 1) ?: 0
+        val currentIndex = if (itemsToRestore.isNotEmpty()) {
+            remotePlayer?.currentMediaItemIndex?.coerceIn(0, itemsToRestore.size - 1) ?: 0
+        } else {
+            0
+        }
         val currentPosition = remotePlayer?.currentPosition ?: 0
 
         safelyResetCastPlayer(remotePlayer)
@@ -476,30 +510,26 @@ class PlaybackService : MediaSessionService() {
         return buildList {
             for (i in 0 until sourcePlayer.mediaItemCount) {
                 val item = sourcePlayer.getMediaItemAt(i)
-                val uri = item.localConfiguration?.uri?.toString().orEmpty()
                 
-                // Ensure we carry over the full metadata (title, subtitle, artist, etc)
-                // so the TV receiver can display and scroll them correctly.
+                // REVENUE/TECH FIX: TVs are picky. Force a valid MimeType if unknown.
+                val uri = item.localConfiguration?.uri.toString()
+                val mimeType = if (item.localConfiguration?.mimeType == null || item.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD) {
+                    if (uri.contains(".mp3", ignoreCase = true)) MimeTypes.AUDIO_MPEG 
+                    else if (uri.contains(".m3u", ignoreCase = true)) MimeTypes.APPLICATION_M3U8
+                    else MimeTypes.AUDIO_MPEG // Aggressive fallback for TV compatibility
+                } else {
+                    item.localConfiguration?.mimeType
+                }
+
                 val metadata = item.mediaMetadata.buildUpon()
                     .setIsPlayable(true)
                     .build()
 
                 add(item.buildUpon()
-                    .setMimeType(inferMimeType(uri))
+                    .setMimeType(mimeType)
                     .setMediaMetadata(metadata)
                     .build())
             }
-        }
-    }
-
-    @OptIn(UnstableApi::class)
-    private fun inferMimeType(url: String): String {
-        val cleanUrl = url.lowercase()
-        return when {
-            cleanUrl.contains(".m3u8") || cleanUrl.contains("m3u") -> MimeTypes.APPLICATION_M3U8
-            cleanUrl.contains(".mp3") -> MimeTypes.AUDIO_MPEG
-            cleanUrl.contains(".aac") -> MimeTypes.AUDIO_AAC
-            else -> MimeTypes.AUDIO_MPEG // Default to MPEG
         }
     }
 
@@ -563,6 +593,15 @@ class PlaybackService : MediaSessionService() {
     private fun isTemporaryNetworkFailure(error: PlaybackException): Boolean {
         return error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+    }
+
+    private fun updateRemoteCommandAvailability() {
+        val player = mediaSession?.player ?: return
+        val currentCommands = player.availableCommands
+        
+        // This effectively notifies the session that commands might have changed
+        // though in Media3 the Player itself owns availability.
+        RideLogger.log("REFRESH_COMMANDS: next=${currentCommands.contains(Player.COMMAND_SEEK_TO_NEXT)}")
     }
 
     private fun currentStationName(): String {

@@ -1,6 +1,7 @@
 // Music1Chat V9.8 TESTFLIGHT PREP — 2026-08-08
 // Keeps the working AdMob TEST banner and separates the approved header artwork
 // so the no-hands symbol and radio have a little more breathing room.
+// Updated: Overlay dimensions and silent search error logging.
 import SwiftUI
 import AVKit
 import GoogleMobileAds
@@ -93,16 +94,16 @@ struct MainScreen: View {
             .preferredColorScheme(.dark)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 AdMobBannerView()
-                    .frame(width: 320, height: 50)
+                    .frame(width: 320, height: 100)
                     .frame(maxWidth: .infinity)
                     .background(Color.black)
             }
             .onAppear {
                 lastAnnouncedCategoryName = player.activeQueueName
+                player.feedbackSoundsEnabled = settings.feedbackSoundsEnabled
 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                    isAppStarting = false
-                }
+                // Start immediately instead of waiting 2.5 seconds
+                isAppStarting = false
 
                 player.onNextTrackCommand = {
                     nextStation()
@@ -120,17 +121,6 @@ struct MainScreen: View {
                 )
 
                 scheduleNavigationPrefetch()
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                    Task {
-                        for saved in player.savedSearchQueues {
-                            if saved.name.caseInsensitiveCompare(player.activeQueueName ?? "") != .orderedSame {
-                                try? await Task.sleep(nanoseconds: 500_000_000)
-                                validateSearchBackground(named: saved.name)
-                            }
-                        }
-                    }
-                }
             }
             .onDisappear {
                 player.onNextTrackCommand = nil
@@ -149,6 +139,9 @@ struct MainScreen: View {
             }
             .onChange(of: player.navigationRevision) { _, _ in
                 scheduleNavigationPrefetch()
+            }
+            .onChange(of: settings.feedbackSoundsEnabled) { _, newValue in
+                player.feedbackSoundsEnabled = newValue
             }
             .alert(
                 "Delete Search: \(pendingDeleteSearchName ?? "")?",
@@ -286,7 +279,6 @@ struct MainScreen: View {
             HStack(spacing: 7) {
                 ForEach(dynamicQuickSearches, id: \.self) { search in
                     Button {
-                        searchText = search
                         submitInlineSearch(search)
                     } label: {
                         Text(search)
@@ -580,14 +572,15 @@ struct MainScreen: View {
                 }
             } else if let error = player.errorMessage {
                 Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
-            } else if player.isConnecting {
+                    .padding(.horizontal, 20)
+            } else if player.isConnecting || (player.playbackState == .paused && player.isPlaying == false) {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(playbackStatusText)
+                    Text(player.playbackState == .connecting ? "Connecting…" : "Buffering…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -599,6 +592,11 @@ struct MainScreen: View {
     private var playButton: some View {
         Button {
             togglePlayback()
+
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+               let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                AdInterstitialService.shared.maybeShow(from: rootVC)
+            }
         } label: {
             ZStack {
                 Circle()
@@ -773,18 +771,25 @@ struct MainScreen: View {
     }
 
     private func togglePlayback() {
-        if player.isPlaying || player.isConnecting {
+        if player.isConnecting {
+            return
+        }
+
+        if player.isPlaying {
+            RideLogger.shared.log("UI_TAP: Stop button")
             player.stop()
             return
         }
 
         if !player.activeQueue.isEmpty {
+            RideLogger.shared.log("UI_TAP: Play button (restart queue)")
             player.restartCurrentQueueItem()
             return
         }
 
         guard let _ = selectedStationForPlayback else { return }
 
+        RideLogger.shared.log("UI_TAP: Play button (new queue)")
         player.play(
             queue: categoryStations,
             name: selectedCategory?.name,
@@ -828,12 +833,13 @@ struct MainScreen: View {
         }
     }
 
-    private func scheduleNavigationPrefetch() {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            prefetchLikelyNavigationTargets()
-        }
-    }
+ private func scheduleNavigationPrefetch() {
+         Task { @MainActor in
+             // Reduced to 40ms so the next station resolves almost instantly in the background
+             try? await Task.sleep(nanoseconds: 40_000_000)
+             prefetchLikelyNavigationTargets()
+         }
+     }
 
     private func prefetchLikelyNavigationTargets() {
         player.prefetchNextStation()
@@ -1126,6 +1132,7 @@ struct MainScreen: View {
         ZStack {
             Color.black.opacity(0.58)
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture {
                     showSearchOverlay = false
                     searchFieldFocused = false
@@ -1178,16 +1185,17 @@ struct MainScreen: View {
                         }
                     }
                 }
-                .frame(maxHeight: 300)
+                .frame(maxHeight: 240)
             }
             .padding(16)
-            .frame(maxWidth: 350)
+            .frame(maxWidth: 310)
             .background(
                 RoundedRectangle(cornerRadius: 22)
                     .fill(Color(.secondarySystemBackground))
             )
             .shadow(radius: 24)
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 36)
+            .padding(.bottom, 60)
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     searchFieldFocused = true
@@ -1227,6 +1235,7 @@ struct MainScreen: View {
         let query = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return }
 
+        RideLogger.shared.log("UI_SEARCH: query='\(query)'")
         searchText = query
         showSearchOverlay = false
         searchFieldFocused = false
@@ -1240,11 +1249,13 @@ struct MainScreen: View {
                     limit: settings.maximumSearchResults
                 )
                 guard !results.isEmpty else {
+                    RideLogger.shared.log("SEARCH_NO_RESULTS: query='\(query)'")
                     player.setAuditionStatus(message: nil)
-                    searchErrorMessage = "No stations matched \(query)."
+                    searchErrorMessage = "No stations matched “\(query)”."
                     return
                 }
 
+                RideLogger.shared.log("SEARCH_RESULTS: query='\(query)' count=\(results.count)")
                 searchText = ""
                 player.audition(
                     queue: results.map(\.asStation),
@@ -1255,8 +1266,8 @@ struct MainScreen: View {
                     statusMessage: "Finding a playable station…"
                 )
             } catch {
-                searchErrorMessage = (error as? LocalizedError)?.errorDescription
-                    ?? "Station search is temporarily unavailable. Please try again."
+                RideLogger.shared.log("SEARCH_ERROR: query='\(query)' error='\(error.localizedDescription)'")
+                player.setAuditionStatus(message: nil)
             }
         }
     }
@@ -1283,6 +1294,7 @@ struct MainScreen: View {
         ZStack {
             Color.black.opacity(0.58)
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { showCategoryList = false }
 
             CategoryListScreen(
@@ -1306,7 +1318,7 @@ struct MainScreen: View {
                     deleteLibraryCategory(category)
                 }
             )
-            .frame(maxWidth: 370, maxHeight: 520)
+            .frame(maxWidth: 320, maxHeight: 420)
             .background(
                 RoundedRectangle(cornerRadius: 22)
                     .fill(Color(.secondarySystemBackground))
@@ -1317,7 +1329,8 @@ struct MainScreen: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 22))
             .shadow(radius: 24)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 32)
+            .padding(.bottom, 60)
         }
         .transition(.opacity)
         .zIndex(19)
@@ -1329,6 +1342,7 @@ struct MainScreen: View {
         ZStack {
             Color.black.opacity(0.58)
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { showSaveStationDialog = false }
 
             VStack(alignment: .leading, spacing: 12) {
@@ -1392,7 +1406,7 @@ struct MainScreen: View {
                         }
                     }
                 }
-                .frame(maxHeight: 180)
+                .frame(maxHeight: 160)
 
                 Button("Cancel") {
                     showSaveStationDialog = false
@@ -1400,12 +1414,13 @@ struct MainScreen: View {
                 .frame(maxWidth: .infinity)
             }
             .padding(16)
-            .frame(maxWidth: 350)
+            .frame(maxWidth: 310)
             .background(
                 RoundedRectangle(cornerRadius: 22)
                     .fill(Color(.secondarySystemBackground))
             )
-            .padding(.bottom, 10)
+            .padding(.horizontal, 36)
+            .padding(.bottom, 60)
         }
         .zIndex(30)
     }
@@ -1456,6 +1471,7 @@ struct MainScreen: View {
         ZStack {
             Color.black.opacity(0.58)
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { showSettingsOverlay = false }
 
             SettingsPanel(
@@ -1464,6 +1480,7 @@ struct MainScreen: View {
                 onDismiss: { showSettingsOverlay = false }
             )
             .padding(.horizontal, 18)
+            .padding(.bottom, 60)
         }
         .transition(.opacity)
         .zIndex(60)
@@ -1524,6 +1541,7 @@ struct MainScreen: View {
         ZStack {
             Color.black.opacity(0.58)
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { dismissStationList() }
 
             Group {
@@ -1547,7 +1565,7 @@ struct MainScreen: View {
                     )
                 }
             }
-            .frame(maxWidth: 370, maxHeight: 520)
+            .frame(maxWidth: 320, maxHeight: 420)
             .background(
                 RoundedRectangle(cornerRadius: 22)
                     .fill(Color(.secondarySystemBackground))
@@ -1558,7 +1576,8 @@ struct MainScreen: View {
             )
             .clipShape(RoundedRectangle(cornerRadius: 22))
             .shadow(radius: 24)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 32)
+            .padding(.bottom, 60)
         }
         .transition(.opacity)
         .zIndex(20)
@@ -1573,12 +1592,10 @@ struct MainScreen: View {
 // MARK: - AdMob Banner View
 
 private struct AdMobBannerView: UIViewRepresentable {
-    private let productionAdUnitID = "ca-app-pub-6232643827829257/3475698773"
-
     func makeUIView(context: Context) -> BannerView {
         MobileAds.shared.start()
-        let banner = BannerView(adSize: AdSizeBanner)
-        banner.adUnitID = productionAdUnitID
+        let banner = BannerView(adSize: AdSizeLargeBanner)
+        banner.adUnitID = AdConfig.bannerID
         if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
             banner.rootViewController = rootVC
@@ -1695,14 +1712,17 @@ private struct MarqueeText: View {
 
     private func start(in width: CGFloat) {
         let textWidth = CGFloat(text.count) * 11.0
-        offset = width
-        let duration = Double(max(textWidth + width, 1)) / 30.0 / speed
+        offset = 0
 
-        withAnimation(
-            .linear(duration: duration)
-                .repeatForever(autoreverses: false)
-        ) {
-            offset = -textWidth
+        let duration = Double(max(textWidth + width, 1)) / 30.0 / (speed * 0.75)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            withAnimation(
+                .linear(duration: duration)
+                    .repeatForever(autoreverses: false)
+            ) {
+                offset = -textWidth
+            }
         }
     }
 }

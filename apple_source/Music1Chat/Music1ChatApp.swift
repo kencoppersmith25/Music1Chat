@@ -5,7 +5,8 @@ struct Music1ChatApp: App {
     @StateObject private var player = AudioPlayerService()
 
     init() {
-        // No-op init, StateObject handles the instance
+        RideLogger.shared.log("APP_START: No Hands Radio (iOS)")
+        MaintenanceService.scrub()
     }
 
     var body: some Scene {

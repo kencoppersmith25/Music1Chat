@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import Combine
 import Foundation
 import MediaPlayer
@@ -62,6 +63,7 @@ final class AudioPlayerService: ObservableObject {
     @Published private(set) var nowPlayingTitle: String?
     @Published private(set) var nowPlayingArtist: String?
     @Published private(set) var auditionStatusMessage: String?
+    @Published var feedbackSoundsEnabled = true
 
     var onPlaybackFailed: ((Station) -> Void)?
     var onAuditionSucceeded: (() -> Void)?
@@ -76,11 +78,16 @@ final class AudioPlayerService: ObservableObject {
     private var player: AVPlayer?
     private var timeControlObservation: NSKeyValueObservation?
     private var itemStatusObservation: NSKeyValueObservation?
+    private var progressCheckTask: Task<Void, Never>?
+    private var lastObservedPosition: Double = -1
+    private var positionStallCount = 0
     private var startupTask: Task<Void, Never>?
     private var resolutionTask: Task<Void, Never>?
     private var metadataOutput: AVPlayerItemMetadataOutput?
     private var metadataDelegate: StreamMetadataDelegate?
     private var audioRouteChangeObserver: NSObjectProtocol?
+    private var audioInterruptionObserver: NSObjectProtocol?
+    private var wasPlayingBeforeInterruption = false
     private var currentResolvedURL: URL?
     private var auditionResolvedURL: URL?
 
@@ -101,6 +108,7 @@ final class AudioPlayerService: ObservableObject {
     private var playbackGeneration = 0
     private var autoAdvanceOnFailure = false
     private var failedQueueIndices = Set<Int>()
+    private var isHandlingCastSwitch = false
 
     private var auditionPlayer: AVPlayer?
     private var auditionTimeControlObservation: NSKeyValueObservation?
@@ -125,8 +133,9 @@ final class AudioPlayerService: ObservableObject {
     private let networkMonitor = NWPathMonitor()
     private var isNetworkAvailable = true
 
-    private let startupTimeoutNanoseconds: UInt64 = 8_000_000_000
-    private let auditionTimeoutNanoseconds: UInt64 = 6_000_000_000
+    // Stream watchdog cut down to fail fast on dead stations
+    private let startupTimeoutNanoseconds: UInt64 = 4_500_000_000
+    private let auditionTimeoutNanoseconds: UInt64 = 3_500_000_000
 
     private var searchNavigation: [String: Bool] = [:]
     private var categoryNavigation: [String: Bool] = [:]
@@ -138,6 +147,7 @@ final class AudioPlayerService: ObservableObject {
 
         Task {
             observeAudioRouteChanges()
+            observeAudioInterruptions()
             configureRemoteCommands()
             restorePersistedState()
             updateRemoteCommandAvailability()
@@ -290,6 +300,8 @@ final class AudioPlayerService: ObservableObject {
 
     private func auditionRelativeStation(by offset: Int) {
         guard !activeQueue.isEmpty else { return }
+        playFeedbackSound(type: .stationChange)
+
         let count = activeQueue.count
         let current = currentQueueIndex ?? 0
         let direction = offset < 0 ? -1 : 1
@@ -483,8 +495,10 @@ final class AudioPlayerService: ObservableObject {
             restartCurrentQueueItem()
             return
         }
+        playFeedbackSound()
         errorMessage = nil
         playbackState = .connecting
+        RideLogger.shared.log("PLAYER_RESUME station='\(station.name)'")
         player.play()
         updateNowPlayingInfo()
         persistState(shouldResume: true)
@@ -498,6 +512,7 @@ final class AudioPlayerService: ObservableObject {
         failedStationID = nil
         errorMessage = nil
         playbackState = .stopped
+        RideLogger.shared.log("PLAYER_STOP station='\(currentStation?.name ?? "none")'")
         updateNowPlayingInfo()
         if clearQueue {
             currentStation = nil
@@ -523,9 +538,31 @@ final class AudioPlayerService: ObservableObject {
         player?.volume = volume
     }
 
+    enum FeedbackType {
+        case stationChange
+        case categoryChange
+    }
+
+    private func playFeedbackSound(type: FeedbackType = .stationChange) {
+        guard feedbackSoundsEnabled else { return }
+
+        switch type {
+        case .stationChange:
+            AudioServicesPlaySystemSound(1057)
+        case .categoryChange:
+            AudioServicesPlaySystemSound(1057)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                AudioServicesPlaySystemSound(1050)
+            }
+        }
+    }
+
     private func startQueueItem(at index: Int) {
         guard activeQueue.indices.contains(index) else { return }
         stopCurrentAttempt()
+
+        playFeedbackSound()
+
         playbackGeneration += 1
         let generation = playbackGeneration
         let station = activeQueue[index]
@@ -537,40 +574,45 @@ final class AudioPlayerService: ObservableObject {
         playbackState = .resolving
         persistState(shouldResume: true)
 
+        RideLogger.shared.log("PLAY_REQUEST station='\(station.name)' category='\(activeQueueName ?? "none")' index=\(index)")
+
         resolutionTask = Task { [weak self] in
             guard let self else { return }
-            let result = await resolver.resolve(station: station)
-            guard !Task.isCancelled, generation == playbackGeneration else { return }
+            let result = await self.resolver.resolve(station: station)
+            guard !Task.isCancelled, generation == self.playbackGeneration else { return }
 
             guard result.success, let resolvedURL = result.resolvedURL, let url = URL(string: resolvedURL) else {
-                handlePlaybackFailure(station: station, message: result.errorMessage ?? "No playable stream was found.")
+                RideLogger.shared.log("STATION_RESOLVE_FAILED station='\(station.name)' error='\(result.errorMessage ?? "unknown")'")
+                self.handlePlaybackFailure(station: station, message: result.errorMessage ?? "No playable stream was found.")
                 return
             }
-            beginPlayback(station: station, url: url, generation: generation)
+            RideLogger.shared.log("STATION_RESOLVED station='\(station.name)' url='\(resolvedURL)'")
+            self.beginPlayback(station: station, url: url, generation: generation)
         }
     }
 
-    private func beginPlayback(station: Station, url: URL, generation: Int) {
-        guard generation == playbackGeneration else { return }
+ private func beginPlayback(station: Station, url: URL, generation: Int) {
+         guard generation == playbackGeneration else { return }
 
-        try? AVAudioSession.sharedInstance().setActive(true)
+         try? AVAudioSession.sharedInstance().setActive(true)
 
-        playbackState = .connecting
-        nowPlayingTitle = nil
-        nowPlayingArtist = nil
-        currentResolvedURL = url
-        let item = AVPlayerItem(url: url)
-        attachMetadataObserver(to: item)
-        let newPlayer = AVPlayer(playerItem: item)
-        newPlayer.allowsExternalPlayback = true
-        newPlayer.automaticallyWaitsToMinimizeStalling = true
-        newPlayer.volume = 1.0
-        player = newPlayer
-        observePlayerItem(item: item, station: station, generation: generation)
-        observePlaybackState(player: newPlayer, station: station, generation: generation)
-        newPlayer.play()
-        startStartupWatchdog(station: station, generation: generation)
-    }
+         playbackState = .connecting
+         nowPlayingTitle = nil
+         nowPlayingArtist = nil
+         currentResolvedURL = url
+         let item = AVPlayerItem(url: url)
+         attachMetadataObserver(to: item)
+         let newPlayer = AVPlayer(playerItem: item)
+         newPlayer.allowsExternalPlayback = false
+         newPlayer.automaticallyWaitsToMinimizeStalling = true
+         newPlayer.isMuted = false
+         newPlayer.volume = 1.0
+         player = newPlayer
+         observePlayerItem(item: item, station: station, generation: generation)
+         observePlaybackState(player: newPlayer, station: station, generation: generation)
+         newPlayer.play()
+         startStartupWatchdog(station: station, generation: generation)
+     }
 
     private func observePlayerItem(item: AVPlayerItem, station: Station, generation: Int) {
         itemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] observedItem, _ in
@@ -595,8 +637,10 @@ final class AudioPlayerService: ObservableObject {
                 switch observedPlayer.timeControlStatus {
                 case .playing:
                     self.cancelStartupWatchdog()
+                    self.startProgressCheckTask(generation: generation, station: station)
                     self.playbackState = .playing
                     self.errorMessage = nil
+                    RideLogger.shared.log("STATION_PLAYING station='\(station.name)'")
                     self.updateNowPlayingInfo()
                     self.persistState(shouldResume: true)
                 case .waitingToPlayAtSpecifiedRate:
@@ -631,8 +675,9 @@ final class AudioPlayerService: ObservableObject {
 
         if isNetworkAvailable && autoAdvanceOnFailure {
             errorMessage = "Station unavailable. Finding next..."
+            RideLogger.shared.log("STATION_FAILURE_AUTO_ADVANCE station='\(station.name)' error='\(message)'")
             if let index = currentQueueIndex { failedQueueIndices.insert(index) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
                 if let nextIndex = self?.nextUnfailedQueueIndex() {
                     self?.startQueueItem(at: nextIndex)
                 }
@@ -642,6 +687,7 @@ final class AudioPlayerService: ObservableObject {
 
         if let index = currentQueueIndex { failedQueueIndices.insert(index) }
         if autoAdvanceOnFailure, let nextIndex = nextUnfailedQueueIndex() {
+            RideLogger.shared.log("STATION_FAILURE_JUMP station='\(station.name)'")
             startQueueItem(at: nextIndex)
             return
         }
@@ -649,13 +695,22 @@ final class AudioPlayerService: ObservableObject {
         updateNowPlayingInfo()
         failedStationID = station.id
         errorMessage = isNetworkAvailable ? message : "Network lost. Waiting..."
+        RideLogger.shared.log("STATION_FAILURE station='\(station.name)' error='\(message)' network=\(isNetworkAvailable)")
         onPlaybackFailed?(station)
     }
 
     private func startNetworkMonitoring() {
         networkMonitor.pathUpdateHandler = { [weak self] path in
             DispatchQueue.main.async {
-                self?.isNetworkAvailable = (path.status == .satisfied)
+                let isAvailable = (path.status == .satisfied)
+                if isAvailable != self?.isNetworkAvailable {
+                    RideLogger.shared.log("NETWORK_CHANGE available=\(isAvailable)")
+                }
+                self?.isNetworkAvailable = isAvailable
+
+                if isAvailable && self?.errorMessage == "Network lost. Waiting..." {
+                    self?.errorMessage = nil
+                }
             }
         }
         networkMonitor.start(queue: DispatchQueue.global(qos: .background))
@@ -690,6 +745,9 @@ final class AudioPlayerService: ObservableObject {
     private func startAuditionItem(at index: Int) {
         guard auditionQueue.indices.contains(index) else { finishAuditionFailure(); return }
         stopAuditionAttempt()
+
+        playFeedbackSound()
+
         auditionGeneration += 1
         let generation = auditionGeneration
         let station = auditionQueue[index]
@@ -710,8 +768,9 @@ final class AudioPlayerService: ObservableObject {
         auditionResolvedURL = url
         let item = AVPlayerItem(url: url)
         let newPlayer = AVPlayer(playerItem: item)
+        newPlayer.allowsExternalPlayback = false
         newPlayer.volume = 0.0
-        newPlayer.automaticallyWaitsToMinimizeStalling = true
+        newPlayer.automaticallyWaitsToMinimizeStalling = false
         auditionPlayer = newPlayer
         observeAuditionPlayerItem(item: item, station: station, generation: generation)
         observeAuditionPlaybackState(player: newPlayer, station: station, index: index, generation: generation)
@@ -741,12 +800,16 @@ final class AudioPlayerService: ObservableObject {
         }
     }
 
-    private func promoteAuditionToActivePlayback(station: Station, index: Int, url: URL?) {
+private func promoteAuditionToActivePlayback(station: Station, index: Int, url: URL?) {
         guard let newPlayer = self.auditionPlayer else { return }
         self.player?.pause()
         self.stopCurrentAttempt(killPlayer: true)
         playbackGeneration += 1
+
+        try? AVAudioSession.sharedInstance().setActive(true)
+        newPlayer.isMuted = false
         newPlayer.volume = 1.0
+        newPlayer.automaticallyWaitsToMinimizeStalling = true
         self.player = newPlayer
         self.currentResolvedURL = url
         if let item = newPlayer.currentItem {
@@ -873,12 +936,42 @@ final class AudioPlayerService: ObservableObject {
         }
     }
 
+    private func startProgressCheckTask(generation: Int, station: Station) {
+        progressCheckTask?.cancel()
+        lastObservedPosition = -1
+        positionStallCount = 0
+
+        progressCheckTask = Task { @MainActor in
+            while !Task.isCancelled && generation == self.playbackGeneration {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled, generation == self.playbackGeneration, let player = self.player, self.isPlaying else { continue }
+
+                let currentPosition = player.currentTime().seconds
+                if currentPosition == lastObservedPosition && currentPosition > 0 {
+                    positionStallCount += 1
+                } else {
+                    positionStallCount = 0
+                }
+                lastObservedPosition = currentPosition
+
+                if positionStallCount >= 3 {
+                    RideLogger.shared.log("AUDIO_STALL detected for \(station.name)")
+                    self.handlePlaybackFailure(station: station, message: "Stream stalled. Trying next...")
+                    break
+                }
+            }
+        }
+    }
+
     private func stopCurrentAttempt(killPlayer: Bool = true) {
         resolutionTask?.cancel()
         resolutionTask = nil
         cancelStartupWatchdog()
+        progressCheckTask?.cancel()
+        progressCheckTask = nil
         invalidateObservations()
         if killPlayer {
+            player?.replaceCurrentItem(with: nil)
             player?.pause()
             player = nil
         }
@@ -930,7 +1023,11 @@ final class AudioPlayerService: ObservableObject {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
+            try session.setCategory(
+                .playback,
+                mode: .default,
+                options: [.allowAirPlay, .defaultToSpeaker]
+            )
             try session.setActive(true)
         } catch {
             print("Failed to configure AVAudioSession: \(error)")
@@ -948,11 +1045,46 @@ final class AudioPlayerService: ObservableObject {
                 switch reason {
                 case .newDeviceAvailable, .routeConfigurationChange, .oldDeviceUnavailable:
                     if self.isPlaying || self.playbackState == .paused {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            self.resume()
-                        }
+                        self.resume()
                     }
                 default:
+                    break
+                }
+            }
+        }
+    }
+
+    private func observeAudioInterruptions() {
+        audioInterruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let userInfo = notification.userInfo,
+                  let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+            Task { @MainActor in
+                switch type {
+                case .began:
+                    self.wasPlayingBeforeInterruption = self.isPlaying || self.isConnecting
+                    RideLogger.shared.log("AUDIO_INTERRUPTION: Began (wasPlaying=\(self.wasPlayingBeforeInterruption))")
+
+                case .ended:
+                    RideLogger.shared.log("AUDIO_INTERRUPTION: Ended")
+                    guard self.wasPlayingBeforeInterruption else { return }
+
+                    let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+                    let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+
+                    if options.contains(.shouldResume) || self.wasPlayingBeforeInterruption {
+                        try? AVAudioSession.sharedInstance().setActive(true)
+                        self.resume()
+                    }
+                    self.wasPlayingBeforeInterruption = false
+
+                @unknown default:
                     break
                 }
             }
@@ -1018,7 +1150,7 @@ final class AudioPlayerService: ObservableObject {
         if let index = currentQueueIndex, activeQueue.indices.contains(index) {
             currentStation = activeQueue[index]
             if state.shouldResume {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { self.startQueueItem(at: index) }
+                self.startQueueItem(at: index)
             }
         }
     }

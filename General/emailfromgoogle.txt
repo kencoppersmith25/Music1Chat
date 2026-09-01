@@ -1,0 +1,73 @@
+
+
+Final reminder] Register your apps and signing keys to meet Android developer verification requirements before Sep 30, 2026
+
+Hi Ken,
+
+All Google Play apps must be registered by September 30, 2026 to meet Play Console requirements. Any Play apps not registered will be removed from Google Play globally.
+
+While over 99% of Play apps have been automatically registered, you should check your Play Console Home page to see if you have any apps that could not be automatically registered, that you want to continue distributing.
+
+You can also use Play Console to register any Android apps that you distribute outside of Play, as well as any additional keys for your Play apps that you use to sign them outside of Play. Starting September 30, 2026, apps installed from participating stores in select regions must be registered by a verified developer in order to be installed on certified Android devices.
+
+How to check that you're ready for Android developer verification
+
+You can complete all of the necessary steps to meet Android developer verification requirements in Play Console, including registering any apps that you distribute outside of Play. You do not need to create a separate Android Developer Console account.
+
+To make sure you're ready for September 30, 2026:
+
+•
+
+Register any of your Play apps that aren't registered, on the Android developer verification page in Play Console
+
+We've automatically registered eligible Play apps for you, and have automatically registered over 99% of all Play apps using their Play signing keys.
+
+You can see which of your Play apps have and have not been successfully registered on your Play Console Home page. A package name status is shown next to each of your apps, and you can filter to view unregistered apps.
+
+You only need to take action for any unregistered apps that you want to continue distributing. Learn more
+
+Make sure to successfully finish registering any draft package name registrations that you already started.
+
+•
+
+Register any apps that you distribute outside of Google Play
+
+You can conveniently register these in Play Console. You do not need to create a separate Android Developer Console account. Learn more
+
+•
+
+Add any additional keys for your Play apps that you use to sign them outside of Google Play
+
+From September 30, 2026, any package name and signing key pairs for Android apps from other participating stores that are not registered will no longer be installable on certified Android devices in select countries. Learn more
+
+We encourage you to complete these steps immediately.
+
+For more information
+
+For more details on the requirements, package name registration process, and deadlines, visit the Android developer verification website.
+
+Go to Android developer verification
+
+
+
+Thank you,
+Your Google Play team
+
+
+Help Center
+
+
+
+Community Center
+
+
+
+Notifications
+
+
+
+© 2026 Google LLC
+1600 Amphitheatre Parkway,
+Mountain View, CA 94043, USA
+
+This message was sent to Kencoppersmith@yahoo.com to inform you about important updates on your Google Play developer account.

@@ -52,9 +52,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import com.coppersmith.music1chat.persistence.AppPreferences
 import com.coppersmith.music1chat.speech.CategoryAnnouncer
 import com.coppersmith.music1chat.speech.VoiceExplorer
+import com.coppersmith.music1chat.diagnostics.RideLogger
 import kotlin.math.roundToInt
 
 @Composable
@@ -116,9 +124,27 @@ fun SettingsScreen(
         )
     }
 
+    var searchIndicatorSoundEnabled by
+    remember {
+        mutableStateOf(
+            appPreferences
+                .loadSearchIndicatorSoundEnabled()
+        )
+    }
+
     var showVoicePicker by
     remember {
         mutableStateOf(false)
+    }
+
+    var developerModeActive by
+    remember {
+        mutableStateOf(com.coppersmith.music1chat.BuildConfig.DEBUG)
+    }
+
+    var versionTapCount by
+    remember {
+        mutableStateOf(0)
     }
 
     DisposableEffect(categoryAnnouncer) {
@@ -330,6 +356,67 @@ fun SettingsScreen(
                 )
 
                 Text(
+                    text = "Audio",
+                    color =
+                        MaterialTheme.colorScheme.primary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(
+                    modifier = Modifier.height(10.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        Arrangement.SpaceBetween,
+                    verticalAlignment =
+                        Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "System feedback sounds",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+
+                        Text(
+                            text =
+                                "Play a gentle sound when skipping stations or starting playback.",
+                            color =
+                                MaterialTheme.colorScheme
+                                    .onSurfaceVariant,
+                            fontSize = 14.sp,
+                            lineHeight = 19.sp
+                        )
+                    }
+
+                    Switch(
+                        checked = searchIndicatorSoundEnabled,
+                        onCheckedChange = { enabled ->
+                            searchIndicatorSoundEnabled = enabled
+                            appPreferences
+                                .saveSearchIndicatorSoundEnabled(
+                                    enabled
+                                )
+                        }
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.height(22.dp)
+                )
+
+                HorizontalDivider()
+
+                Spacer(
+                    modifier = Modifier.height(18.dp)
+                )
+
+                Text(
                     text = "Voice",
                     color =
                         MaterialTheme.colorScheme.primary,
@@ -424,7 +511,7 @@ fun SettingsScreen(
                 )
 
                 Text(
-                    text = "Voice Previous Track",
+                    text = "Previous (Voice or Bluetooth button)",
                     color =
                         MaterialTheme.colorScheme.primary,
                     fontSize = 15.sp,
@@ -437,7 +524,7 @@ fun SettingsScreen(
 
                 Text(
                     text =
-                        "Choose what happens when you say “Hey Google, previous track.”",
+                        "Choose what happens when you say “Hey Google, Previous” or press the Previous button on a Bluetooth device.",
                     color =
                         MaterialTheme.colorScheme
                             .onSurfaceVariant,
@@ -452,7 +539,7 @@ fun SettingsScreen(
                 VoiceChoiceRow(
                     title = "Next Category",
                     subtitle =
-                        "Recommended. Previous Track advances to the next category.",
+                        "Recommended. Advancing to the next category.",
                     selected = voicePreviousMeansNextCategory,
                     onClick = {
                         voicePreviousMeansNextCategory = true
@@ -468,7 +555,7 @@ fun SettingsScreen(
                 VoiceChoiceRow(
                     title = "Previous Station",
                     subtitle =
-                        "Previous Track returns to the previous station.",
+                        "Returning to the previous station.",
                     selected = !voicePreviousMeansNextCategory,
                     onClick = {
                         voicePreviousMeansNextCategory = false
@@ -479,8 +566,132 @@ fun SettingsScreen(
                     }
                 )
 
+                if (developerModeActive) {
+                    Spacer(
+                        modifier = Modifier.height(22.dp)
+                    )
+
+                    HorizontalDivider()
+
+                    Spacer(
+                        modifier = Modifier.height(18.dp)
+                    )
+
+                    Text(
+                        text = "Diagnostics",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { RideLogger.share(context) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Column(
+                            modifier = Modifier
+                                .padding(start = 16.dp)
+                                .weight(1f)
+                        ) {
+                            Text(
+                                text = "Share Ride Log",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Send technical logs to the developer for troubleshooting.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp,
+                                lineHeight = 19.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = { RideLogger.clearLog() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.size(8.dp))
+                        Text("Clear Log")
+                    }
+                }
+
                 Spacer(
-                    modifier = Modifier.height(8.dp)
+                    modifier = Modifier.height(22.dp)
+                )
+
+                HorizontalDivider()
+
+                Spacer(
+                    modifier = Modifier.height(18.dp)
+                )
+
+                Text(
+                    text = "About",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "No Hands Radio",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "The world's most accessible radio app, designed for the ride.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 14.sp,
+                        lineHeight = 19.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Version ${com.coppersmith.music1chat.BuildConfig.VERSION_NAME} (${com.coppersmith.music1chat.BuildConfig.VERSION_CODE})",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                versionTapCount++
+                                if (versionTapCount >= 5) {
+                                    developerModeActive = !developerModeActive
+                                    versionTapCount = 0
+                                }
+                            }
+                            .padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Spacer(
+                    modifier = Modifier.height(12.dp)
                 )
             }
         }

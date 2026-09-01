@@ -210,22 +210,11 @@ class Search(
                         .split('?')[0]
                         .trimEnd('/')
                 }
-                // PASS 3: Fuzzy Name De-duplication (Catch "KMNO" vs "KMNO Maui")
+                // PASS 3: Exact Normalized Name De-duplication
                 .distinctBy { station ->
-                    station.name
-                        .trim()
-                        .lowercase()
-                        .replace(" radio", "")
-                        .replace(" music", "")
-                        .replace(" maui", "")
-                        .replace(" honolulu", "")
-                        .replace(" fm", "")
-                        .replace(" am", "")
-                        .replace(Regex("[^a-z0-9]+"), "")
-                        .take(8) // Use a shorter root for higher sensitivity
+                    station.name.trim().lowercase()
                 }
                 .take(limit)
-
         val interleavedStations = interleaveStations(mergedStations)
 
         return CoordinatedSearchResult(

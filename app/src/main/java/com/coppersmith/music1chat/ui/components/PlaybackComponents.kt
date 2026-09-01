@@ -285,30 +285,35 @@ fun MiniVuMeter(
                 index,
                 heightFraction ->
 
+            // SAFETY GUARD: Prevent NaN or Infinite heights from crashing the UI
+            val safeFraction = if (heightFraction.isNaN() || heightFraction.isInfinite()) 0.18f else heightFraction
+            
             val barHeight =
-                size.height * heightFraction
+                size.height * safeFraction
 
-            drawRoundRect(
-                color = vuBarColor,
-                topLeft = Offset(
-                    x =
-                        index *
-                                (barWidth + gap),
-                    y =
-                        size.height -
-                                barHeight
-                ),
-                size = Size(
-                    width = barWidth,
-                    height = barHeight
-                ),
-                cornerRadius =
-                    CornerRadius(
-                        x = 1.dp.toPx(),
-                        y = 1.dp.toPx()
+            val xOffset = index * (barWidth + gap)
+            val yOffset = size.height - barHeight
+
+            // SAFETY GUARD: Prevent drawing if coordinates are invalid
+            if (!xOffset.isNaN() && !xOffset.isInfinite() && !yOffset.isNaN() && !yOffset.isInfinite()) {
+                drawRoundRect(
+                    color = vuBarColor,
+                    topLeft = Offset(
+                        x = xOffset,
+                        y = yOffset
                     ),
-                style = Fill
-            )
+                    size = Size(
+                        width = barWidth,
+                        height = barHeight
+                    ),
+                    cornerRadius =
+                        CornerRadius(
+                            x = 1.dp.toPx(),
+                            y = 1.dp.toPx()
+                        ),
+                    style = Fill
+                )
+            }
         }
     }
 }

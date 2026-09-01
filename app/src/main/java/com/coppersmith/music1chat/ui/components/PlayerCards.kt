@@ -135,7 +135,8 @@ fun CategoryCard(
                     .padding(vertical = 8.dp)
                     .basicMarquee(
                         iterations = Int.MAX_VALUE,
-                        velocity = MarqueeDefaults.Velocity * 1.35f
+                        velocity = MarqueeDefaults.Velocity * 0.75f, // SLOWED DOWN: 25% slower for stability
+                        initialDelayMillis = 2000 // PURE STABILITY: 2 second pause before moving
                     ),
                 color = MaterialTheme.colorScheme.primary,
                 fontSize = 21.sp,
@@ -310,8 +311,8 @@ fun NowPlayingCard(
                         text = primaryText,
                         modifier = Modifier.basicMarquee(
                             iterations = Int.MAX_VALUE,
-                            velocity =
-                                MarqueeDefaults.Velocity * 1.65f
+                            velocity = MarqueeDefaults.Velocity * 0.75f, // SLOWED DOWN: 25% slower for stability
+                            initialDelayMillis = 2000 // 2 second pause before moving
                         ),
                         color =
                             MaterialTheme.colorScheme.onSurface,
@@ -332,8 +333,8 @@ fun NowPlayingCard(
                             text = songArtist,
                             modifier = Modifier.basicMarquee(
                                 iterations = Int.MAX_VALUE,
-                                velocity =
-                                    MarqueeDefaults.Velocity * 1.55f
+                                velocity = MarqueeDefaults.Velocity * 0.75f, // SLOWED DOWN: 25% slower for stability
+                                initialDelayMillis = 2000 // 2 second pause before moving
                             ),
                             color =
                                 MaterialTheme.colorScheme
@@ -359,8 +360,8 @@ fun NowPlayingCard(
                                 },
                             modifier = Modifier.basicMarquee(
                                 iterations = Int.MAX_VALUE,
-                                velocity =
-                                    MarqueeDefaults.Velocity * 1.35f
+                                velocity = MarqueeDefaults.Velocity * 0.75f, // SLOWED DOWN: 25% slower for stability
+                                initialDelayMillis = 2000 // 2 second pause before moving
                             ),
                             color =
                                 MaterialTheme.colorScheme
@@ -462,8 +463,8 @@ fun NowPlayingCard(
                     text = secondaryInformation,
                     modifier = Modifier.basicMarquee(
                         iterations = Int.MAX_VALUE,
-                        velocity =
-                            MarqueeDefaults.Velocity * 1.5f
+                        velocity = MarqueeDefaults.Velocity * 0.75f, // SLOWED DOWN: 25% slower for stability
+                        initialDelayMillis = 2000 // 2 second pause before moving
                     ),
                     color =
                         MaterialTheme.colorScheme

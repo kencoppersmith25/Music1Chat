@@ -31,6 +31,9 @@ import com.coppersmith.music1chat.diagnostics.RideLogger
 import com.coppersmith.music1chat.resolver.ResolutionResult
 import com.coppersmith.music1chat.resolver.StreamResolver
 import com.google.common.util.concurrent.ListenableFuture
+import android.view.HapticFeedbackConstants
+import android.media.AudioManager
+import android.media.ToneGenerator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -63,6 +66,7 @@ class RadioPlayer(
 
     private var startupWatchdogJob: Job? = null
     private var stallWatchdogJob: Job? = null
+    private var audioProgressWatchdogJob: Job? = null
     private val retryEligibilityJobs = mutableMapOf<Long, Job>()
 
     private var nextGeneration = 0L
@@ -73,6 +77,9 @@ class RadioPlayer(
     private var activeRequestHasPlayed = false
     private var controller: MediaController? = null
 
+    private var lastObservedPositionMs = -1L
+    private var positionStallCount = 0
+
     private val controllerFuture: ListenableFuture<MediaController>
 
     var onStationFailed: ((Station) -> Unit)? = null
@@ -82,6 +89,9 @@ class RadioPlayer(
         private set
 
     var playbackRequested by mutableStateOf(false)
+        private set
+
+    var connecting by mutableStateOf(false)
         private set
 
     var errorMessage by mutableStateOf<String?>(null)
@@ -98,6 +108,39 @@ class RadioPlayer(
 
     var nowPlayingText by mutableStateOf("")
         private set
+
+    enum class FeedbackType {
+        STATION_CHANGE,
+        CATEGORY_CHANGE
+    }
+
+    fun playFeedbackSound(type: FeedbackType = FeedbackType.STATION_CHANGE) {
+        if (!appPreferences.loadSearchIndicatorSoundEnabled()) return
+        
+        try {
+            val toneGenerator = ToneGenerator(AudioManager.STREAM_MUSIC, 60) // Volume reduced from 100 to 60
+            
+            when (type) {
+                FeedbackType.STATION_CHANGE -> {
+                    // Single crisp beep
+                    toneGenerator.startTone(ToneGenerator.TONE_PROP_BEEP2, 120)
+                }
+                FeedbackType.CATEGORY_CHANGE -> {
+                    // High-Low double beep for category movement
+                    toneGenerator.startTone(ToneGenerator.TONE_CDMA_PIP, 100)
+                    CoroutineScope(Dispatchers.IO).launch {
+                        delay(120)
+                        toneGenerator.startTone(ToneGenerator.TONE_CDMA_LOW_L, 120)
+                    }
+                }
+            }
+
+            CoroutineScope(Dispatchers.IO).launch {
+                delay(500)
+                toneGenerator.release()
+            }
+        } catch (_: Exception) {}
+    }
 
     val activeStation: Station?
         get() = activeRequest?.station
@@ -187,8 +230,10 @@ class RadioPlayer(
 
             if (playing) {
                 playbackRequested = true
+                connecting = false
                 activeRequestHasPlayed = true
                 cancelStallWatchdog()
+                startAudioProgressWatchdog(request)
                 
                 // RESET GRUDGES: If we play successfully, clear the failure counts.
                 rapidFailureCount = 0 
@@ -236,6 +281,7 @@ class RadioPlayer(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            connecting = false
             val request = matchingActiveRequest() ?: return
 
             isPlaying = false
@@ -301,6 +347,7 @@ class RadioPlayer(
         nowPlayingText = ""
         isPlaying = false
         playbackRequested = true
+        connecting = true
         activeRequestHasPlayed = false
 
         val connectedController = controller
@@ -374,6 +421,8 @@ class RadioPlayer(
             return
         }
 
+        cancelAudioProgressWatchdog()
+
         stallWatchdogJob = resolverScope.launch {
             delay(STALL_FAILURE_TIMEOUT_MILLISECONDS)
             withContext(Dispatchers.Main) {
@@ -421,6 +470,48 @@ class RadioPlayer(
     private fun cancelStallWatchdog() {
         stallWatchdogJob?.cancel()
         stallWatchdogJob = null
+    }
+
+    private fun startAudioProgressWatchdog(request: PlaybackRequest) {
+        cancelAudioProgressWatchdog()
+        lastObservedPositionMs = -1L
+        positionStallCount = 0
+
+        audioProgressWatchdogJob = resolverScope.launch {
+            while (requestIsStillActive(request)) {
+                delay(2000L) // Check every 2 seconds
+
+                withContext(Dispatchers.Main) {
+                    val mediaController = controller ?: return@withContext
+                    if (!mediaController.isPlaying || !requestIsStillActive(request)) return@withContext
+
+                    val currentPosition = mediaController.currentPosition
+                    if (currentPosition == lastObservedPositionMs && currentPosition != 0L) {
+                        positionStallCount++
+                    } else {
+                        positionStallCount = 0
+                    }
+                    lastObservedPositionMs = currentPosition
+
+                    if (positionStallCount >= 3) { // 6 seconds of no movement while "playing"
+                        val failedStation = request.station
+                        RideLogger.log("STATION_AUDIO_STALL station='${failedStation.name}' position=$currentPosition")
+                        
+                        mediaController.stop()
+                        mediaController.clearMediaItems()
+                        
+                        failedStation.failedThisSession = true
+                        errorMessage = "${failedStation.name} data stream stalled. Trying next..."
+                        onStationFailed?.invoke(failedStation)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelAudioProgressWatchdog() {
+        audioProgressWatchdogJob?.cancel()
+        audioProgressWatchdogJob = null
     }
 
     private var lastFailureTime = 0L
@@ -519,11 +610,13 @@ class RadioPlayer(
 
     @OptIn(UnstableApi::class)
     private fun inferMimeType(url: String): String {
-        val cleanUrl = url.lowercase()
+        val cleanUrl = url.lowercase().split('?')[0]
         return when {
-            cleanUrl.contains(".m3u8") || cleanUrl.contains("m3u") -> MimeTypes.APPLICATION_M3U8
-            cleanUrl.contains(".mp3") -> MimeTypes.AUDIO_MPEG
-            cleanUrl.contains(".aac") -> MimeTypes.AUDIO_AAC
+            cleanUrl.endsWith(".m3u8") || cleanUrl.contains("m3u8") -> MimeTypes.APPLICATION_M3U8
+            cleanUrl.endsWith(".aac") || cleanUrl.contains("aac") -> MimeTypes.AUDIO_AAC
+            cleanUrl.endsWith(".mp3") || cleanUrl.contains("mp3") -> MimeTypes.AUDIO_MPEG
+            cleanUrl.endsWith(".ogg") || cleanUrl.contains("ogg") -> MimeTypes.AUDIO_OGG
+            cleanUrl.endsWith(".wav") || cleanUrl.contains("wav") -> MimeTypes.AUDIO_WAV
             else -> MimeTypes.AUDIO_MPEG // Default to MPEG for radio streams
         }
     }
@@ -597,6 +690,7 @@ class RadioPlayer(
     fun stop() {
         cancelStartupWatchdog()
         cancelStallWatchdog()
+        cancelAudioProgressWatchdog()
         nextGeneration++
 
         activeRequest = null
@@ -611,12 +705,14 @@ class RadioPlayer(
 
         isPlaying = false
         playbackRequested = false
+        connecting = false
         activeRequestHasPlayed = false
     }
 
     fun release() {
         cancelStartupWatchdog()
         cancelStallWatchdog()
+        cancelAudioProgressWatchdog()
         retryEligibilityJobs.values.forEach { it.cancel() }
         retryEligibilityJobs.clear()
         nextGeneration++

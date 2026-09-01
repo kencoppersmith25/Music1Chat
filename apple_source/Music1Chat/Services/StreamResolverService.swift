@@ -33,15 +33,15 @@ struct StreamResolutionResult {
 }
 
 final class StreamResolverService {
-    private let maximumResolutionDepth = 4
+    private let maximumResolutionDepth = 3
     private let maximumPlaylistCharacters = 65_536
 
     private let session: URLSession
 
     init() {
         let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 4.0
-        configuration.timeoutIntervalForResource = 5.0
+        configuration.timeoutIntervalForRequest = 2.5
+        configuration.timeoutIntervalForResource = 3.5
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
 
         session = URLSession(configuration: configuration)
@@ -105,13 +105,13 @@ final class StreamResolverService {
             return .failure("A redirect or playlist loop was detected.")
         }
 
-        guard let url = URL(string: startingURL) else {
-            return .failure("The stream URL is invalid.")
+        // FAST PATH: If the URL is already standard audio or HLS stream, pass to AVPlayer immediately
+        if isLikelyDirectStream(startingURL) {
+            return .verified(startingURL)
         }
 
-        // Direct audio or HLS stream URLs can be passed immediately to AVPlayer
-        if isDirectAudioURL(startingURL) || isHLSURL(startingURL) {
-            return .verified(startingURL)
+        guard let url = URL(string: startingURL) else {
+            return .failure("The stream URL is invalid.")
         }
 
         var updatedVisitedURLs = visitedURLs
@@ -119,7 +119,7 @@ final class StreamResolverService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.timeoutInterval = 4.0
+        request.timeoutInterval = 2.5
         request.setValue("Music1Chat/1.0 iOS Radio Resolver", forHTTPHeaderField: "User-Agent")
         request.setValue("1", forHTTPHeaderField: "Icy-MetaData")
         request.setValue("audio/*, application/pls, audio/x-scpls, application/x-mpegurl, application/vnd.apple.mpegurl, */*", forHTTPHeaderField: "Accept")
@@ -160,11 +160,9 @@ final class StreamResolverService {
                 return await resolvePlaylistCandidates(playlistURLs, depth: depth + 1, visitedURLs: updatedVisitedURLs)
             }
 
-            // Fallback: If HTTP 200 succeeded with binary stream, assume valid
             return .verified(finalURL)
 
         } catch {
-            // If the network probe timed out on a live continuous stream, AVPlayer can still attempt it
             if (error as NSError).code == NSURLErrorTimedOut {
                 return .verified(startingURL)
             }
@@ -255,9 +253,18 @@ final class StreamResolverService {
         return resolved.absoluteString
     }
 
-    private func isDirectAudioURL(_ url: String) -> Bool {
+    private func isLikelyDirectStream(_ url: String) -> Bool {
         let clean = url.components(separatedBy: "?")[0].lowercased()
-        return clean.hasSuffix(".mp3") || clean.hasSuffix(".aac") || clean.hasSuffix(".ogg")
+        return clean.hasSuffix(".mp3")
+            || clean.hasSuffix(".aac")
+            || clean.hasSuffix(".ogg")
+            || clean.hasSuffix(".m3u8")
+            || clean.hasSuffix("/stream")
+            || clean.hasSuffix("/listen")
+            || clean.contains("streamguys")
+            || clean.contains("icecast")
+            || clean.contains("somafm.com")
+            || clean.contains("radio.co")
     }
 
     private func looksLikePLS(url: String, contentType: String) -> Bool {

@@ -40,19 +40,22 @@ class RadioBrowserClient {
 
     suspend fun search(
         query: String,
-        limit: Int = 50
+        limit: Int = 100
     ): List<RadioBrowserStation> {
         val searchText = query.trim()
         if (searchText.isBlank()) {
             return emptyList()
         }
 
-        val safeLimit = limit.coerceIn(1, 100)
+        val safeLimit = limit.coerceIn(1, 200)
         var hadDirectoryFailure = false
 
         for (baseUrl in baseUrls) {
             try {
-                return executeMultiSearch(baseUrl, searchText, safeLimit)
+                val results = executeMultiSearch(baseUrl, searchText, safeLimit)
+                if (results.isNotEmpty()) {
+                    return results
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -75,21 +78,22 @@ class RadioBrowserClient {
         val normalized = text.lowercase()
         val deferredSearches = mutableListOf<kotlinx.coroutines.Deferred<List<RadioBrowserStation>>>()
 
+
         coroutineScope {
-            // 1. Core Searches
-            deferredSearches += async { fetch(baseUrl, "name", text, finalLimit) }
-            deferredSearches += async { fetch(baseUrl, "tag", text, finalLimit) }
+            // 1. Core Searches - Fetch broader pools with higher limit
+            deferredSearches += async { fetch(baseUrl, "name", text, 100) }
+            deferredSearches += async { fetch(baseUrl, "tag", text, 100) }
 
             // 2. Ultra Hawaiian Synergy
             if (normalized.contains("hawai")) {
-                deferredSearches += async { fetch(baseUrl, "state", "Hawaii", 30) }
-                deferredSearches += async { fetch(baseUrl, "tag", "hawaiian", 30) }
-                deferredSearches += async { fetch(baseUrl, "name", "Honolulu", 30) }
-                deferredSearches += async { fetch(baseUrl, "name", "Maui", 20) }
-                deferredSearches += async { fetch(baseUrl, "name", "Kauai", 15) }
-                deferredSearches += async { fetch(baseUrl, "name", "Kona", 15) }
-                deferredSearches += async { fetch(baseUrl, "name", "Aloha", 15) }
-                deferredSearches += async { fetch(baseUrl, "name", "Hawaii Music Live", 10) }
+                deferredSearches += async { fetch(baseUrl, "state", "Hawaii", 100) }
+                deferredSearches += async { fetch(baseUrl, "tag", "hawaiian", 100) }
+                deferredSearches += async { fetch(baseUrl, "name", "Honolulu", 60) }
+                deferredSearches += async { fetch(baseUrl, "name", "Maui", 50) }
+                deferredSearches += async { fetch(baseUrl, "name", "Kauai", 40) }
+                deferredSearches += async { fetch(baseUrl, "name", "Kona", 40) }
+                deferredSearches += async { fetch(baseUrl, "name", "Aloha", 40) }
+                deferredSearches += async { fetch(baseUrl, "name", "Hawaii Music Live", 30) }
             }
         }
 
@@ -107,28 +111,37 @@ class RadioBrowserClient {
             throw IllegalStateException("No results or server error.")
         }
 
-        // Filter invalid records
+        // Filter out stations with empty names or URLs
         val validStations = collected.filter { station ->
             val cleanedName = station.name.trim()
-            val playbackUrl = station.resolvedStreamUrl.ifBlank { station.streamUrl }.trim()
+            val playbackUrl = (station.resolvedStreamUrl.ifBlank { station.streamUrl }).trim()
             cleanedName.isNotBlank() && playbackUrl.isNotBlank()
         }
 
-        // Deduplicate by UUID or Cleaned URL
-        val seen = mutableSetOf<String>()
-        val deduplicated = validStations.filter { station ->
+        // Deduplicate primarily by Station UUID and Exact Full Stream URL
+        val seenUuids = mutableSetOf<String>()
+        val seenUrls = mutableSetOf<String>()
+
+        val uniqueStations = validStations.filter { station ->
             val uuid = station.stationUuid.trim().lowercase()
+            val hasValidUuid = uuid.isNotBlank() && uuid != "00000000-0000-0000-0000-000000000000"
+
             val rawUrl = station.resolvedStreamUrl.ifBlank { station.streamUrl }.trim().lowercase()
-            val key = uuid.ifBlank { rawUrl }
-            if (seen.contains(key)) {
+
+            val isUuidDuplicate = hasValidUuid && seenUuids.contains(uuid)
+            val isUrlDuplicate = seenUrls.contains(rawUrl)
+
+            if (isUuidDuplicate || isUrlDuplicate) {
                 false
             } else {
-                seen.add(key)
+                if (hasValidUuid) seenUuids.add(uuid)
+                seenUrls.add(rawUrl)
                 true
             }
         }
 
-        val limited = deduplicated.take(finalLimit)
+        val limited = uniqueStations.take(finalLimit)
+        android.util.Log.d("kencheck", "Query: '$text' | finalLimit: $finalLimit | rawCollected: ${collected.size} | valid: ${validStations.size} | unique: ${uniqueStations.size} | returned: ${limited.size}")
         interleaveStations(limited)
     }
 
@@ -136,7 +149,7 @@ class RadioBrowserClient {
         val count = stations.size
         if (count <= 1) return stations
 
-        val stride = 10
+        val stride = 7
         val result = arrayOfNulls<RadioBrowserStation>(count)
 
         for (i in 0 until count) {
@@ -169,8 +182,7 @@ class RadioBrowserClient {
         val urlString = "$baseUrl/json/stations/search?" +
                 "$field=$encodedText" +
                 "&${field}Exact=false" +
-                "&hidebroken=true" +
-                "&order=clickcount" +
+                "&order=votes" +
                 "&reverse=true" +
                 "&limit=$limit"
 

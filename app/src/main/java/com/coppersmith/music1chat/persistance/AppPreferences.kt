@@ -21,7 +21,7 @@ class AppPreferences(
     fun loadAnnounceCategoryChanges(): Boolean =
         preferences.getBoolean(
             KEY_ANNOUNCE_CATEGORY_CHANGES,
-            false
+            true // CHANGED: Default to true for better release experience
         )
 
     fun saveAnnounceCategoryChanges(
@@ -47,6 +47,23 @@ class AppPreferences(
         preferences.edit()
             .putBoolean(
                 KEY_VOICE_PREVIOUS_MEANS_NEXT_CATEGORY,
+                enabled
+            )
+            .apply()
+    }
+
+    fun loadSearchIndicatorSoundEnabled(): Boolean =
+        preferences.getBoolean(
+            KEY_SEARCH_INDICATOR_SOUND_ENABLED,
+            true        // Default = Enabled
+        )
+
+    fun saveSearchIndicatorSoundEnabled(
+        enabled: Boolean
+    ) {
+        preferences.edit()
+            .putBoolean(
+                KEY_SEARCH_INDICATOR_SOUND_ENABLED,
                 enabled
             )
             .apply()
@@ -800,6 +817,9 @@ class AppPreferences(
 
         private const val KEY_VOICE_PREVIOUS_MEANS_NEXT_CATEGORY =
             "voice_previous_means_next_category"
+
+        private const val KEY_SEARCH_INDICATOR_SOUND_ENABLED =
+            "search_indicator_sound_enabled"
 
         private const val KEY_ANNOUNCE_CATEGORY_CHANGES =
             "announce_category_changes"

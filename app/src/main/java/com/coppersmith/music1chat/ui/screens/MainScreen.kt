@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import android.app.Activity
 import com.coppersmith.music1chat.GenreData
 import com.coppersmith.music1chat.RadioPlayer
 import com.coppersmith.music1chat.coordinator.AnnouncementManager
@@ -67,6 +68,8 @@ import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.ui.components.CategoryPicker
+import com.coppersmith.music1chat.ads.AdManager
+import com.coppersmith.music1chat.ads.AdReason
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.coppersmith.music1chat.BuildConfig
@@ -225,9 +228,9 @@ fun MainScreen() {
         AnnouncementManager(context.applicationContext).apply {
             onSpeechStatusChanged = { isSpeaking ->
                 if (isSpeaking) {
-                    radioPlayer.setVolume(0.0f) // MUTE the music completely for wind clarity
+                    radioPlayer.setVolume(0.15f) // DUCK: Reduce music to 15% during speech
                 } else {
-                    radioPlayer.setVolume(1.0f) // Restore to 100% volume
+                    radioPlayer.setVolume(1.0f) // RESTORE: Return to 100%
                 }
             }
         }
@@ -239,6 +242,12 @@ fun MainScreen() {
 
     var rideLogAvailable by remember {
         mutableStateOf(RideLogger.hasLog)
+    }
+
+    // Refresh log availability periodically or on specific events
+    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.playbackRequested) {
+        rideLogActive = RideLogger.isActive
+        rideLogAvailable = RideLogger.hasLog
     }
 
     var stationStateVersion by remember {
@@ -304,11 +313,6 @@ fun MainScreen() {
         mutableStateOf<Map<String, PlaybackSessionState>>(
             emptyMap()
         )
-    }
-
-// Searches currently being prepared invisibly for category navigation.
-    val searchPrefetchesInProgress = remember {
-        mutableSetOf<String>()
     }
 
     var savedSearchCategories by remember {
@@ -624,6 +628,7 @@ fun MainScreen() {
     fun changeCategory(
         direction: Int
     ) {
+        radioPlayer.playFeedbackSound()
         val beforeState = sessionStateRef.value
 
         RideLogger.log(
@@ -735,6 +740,7 @@ fun MainScreen() {
     fun moveStation(
         direction: Int
     ) {
+        radioPlayer.playFeedbackSound()
         navigationStatusMessage = if (direction > 0) "Finding next station…" else "Finding previous station…"
         val result = playback.moveStation(direction)
 
@@ -764,6 +770,7 @@ fun MainScreen() {
     }
 
     fun startPlayback() {
+        radioPlayer.playFeedbackSound()
         val result = playback.start()
         publishSession(result.state)
 
@@ -888,56 +895,7 @@ fun MainScreen() {
         }
     }
 
-    fun prefetchSearch(
-        query: String
-    ) {
-        val searchQuery = query.trim()
-
-        if (searchQuery.isBlank()) {
-            return
-        }
-
-        val normalizedKey = normalizedSearchKey(searchQuery)
-
-        if (
-            searchSessionStates[normalizedKey]?.hasStations == true ||
-            normalizedKey in searchPrefetchesInProgress
-        ) {
-            return
-        }
-
-        searchPrefetchesInProgress.add(normalizedKey)
-        RideLogger.log("SEARCH_PREFETCH_START query='$searchQuery'")
-
-        coroutineScope.launch {
-            try {
-                val prefetchedState =
-                    searchCoordinator.prefetchWorkflow(
-                        query = searchQuery,
-                        limit = appPreferences.getSearchResultLimit(),
-                        repositoryStations = repositoryStations,
-                        savedSearches = savedSearchCategories
-                    )
-
-                if (prefetchedState == null) {
-                    RideLogger.log("SEARCH_PREFETCH_EMPTY query='$searchQuery'")
-                    return@launch
-                }
-
-                searchSessionStates =
-                    searchSessionStates +
-                            (normalizedKey to prefetchedState)
-
-                RideLogger.log(
-                    "SEARCH_PREFETCH_READY " +
-                            "query='$searchQuery' " +
-                            "stations=${prefetchedState.stationCount}"
-                )
-            } finally {
-                searchPrefetchesInProgress.remove(normalizedKey)
-            }
-        }
-    }
+    // prefetchSearch removed for stability on S25
 
     runSearchAction = { query,
                         startPlayback,
@@ -1283,16 +1241,7 @@ fun MainScreen() {
             startupRestoreComplete = true
         }
 
-        // Step 2: Background pre-fetches for other searches (Delayed)
-        delay(1500)
-        savedSearchCategories
-            .filter { it.navigationEnabled }
-            .forEach { saved ->
-                if (saved.query != initiallyCurrentSearch?.query) {
-                    prefetchSearch(saved.query)
-                    delay(500)
-                }
-            }
+    // Step 2: Background pre-fetches removed for stability on S25
     }
 
     LaunchedEffect(Unit) {
@@ -1313,18 +1262,22 @@ fun MainScreen() {
                 }
 
                 MediaButtonCommand.NEXT_STATION -> {
+                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.STATION_CHANGE)
                     moveStation(direction = 1)
                 }
 
                 MediaButtonCommand.PREVIOUS_STATION -> {
+                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.STATION_CHANGE)
                     moveStation(direction = -1)
                 }
 
                 MediaButtonCommand.NEXT_CATEGORY -> {
+                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.CATEGORY_CHANGE)
                     changeCategory(direction = 1)
                 }
 
                 MediaButtonCommand.PREVIOUS_CATEGORY -> {
+                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.CATEGORY_CHANGE)
                     changeCategory(direction = -1)
                 }
             }
@@ -1702,8 +1655,12 @@ fun MainScreen() {
                 startupRestoreComplete = startupRestoreComplete,
                 libraryHasCategories = libraryHasCategories,
                 sessionHasStations = sessionState.hasStations,
-                visibleStatusMessage =
-                    radioPlayer.errorMessage ?: navigationStatusMessage,
+                visibleStatusMessage = when {
+                    radioPlayer.errorMessage != null -> radioPlayer.errorMessage
+                    radioPlayer.connecting -> "Connecting…"
+                    playbackRequested && !isPlaying && !isRestoringInitialPlayback -> "Buffering…"
+                    else -> navigationStatusMessage
+                },
                 onSettingsClick = {
                     showSettings = true
                 },
@@ -1863,10 +1820,25 @@ fun MainScreen() {
                     moveStation(direction = -1)
                 },
                 onPlayPauseClick = {
+                    if (radioPlayer.connecting) {
+                        // IGNORE: User is likely clicking because it hasn't started yet.
+                        // We don't want to stop the connection attempt they just requested.
+                        return@Content
+                    }
+
                     if (playbackRequested) {
                         stopPlayback()
                     } else if (sessionState.hasStations) {
                         startPlayback()
+                        
+                        // INTERSTITIAL AD TRIGGER
+                        val activity = context as? Activity
+                        if (activity != null) {
+                            AdManager.maybeShowInterstitial(
+                                activity = activity,
+                                reason = AdReason.FIRST_MANUAL_PLAY
+                            )
+                        }
                     } else {
                         navigationStatusMessage =
                             if (!libraryHasCategories) {

@@ -16,7 +16,7 @@ class LiveStationSearchEngine(
 
     suspend fun search(
         query: String,
-        limit: Int = 50
+        limit: Int = 1000
     ): SearchResult {
         val searchText = query.trim()
 
@@ -98,7 +98,7 @@ class LiveStationSearchEngine(
                         searchQuery = searchText
                     )
                 }
-
+        android.util.Log.d("kencheck", "LiveStationSearchEngine produced: ${stations.size} stations (passed limit parameter: $limit)")
         return SearchResult(
             query = searchText,
             stations = stations
@@ -114,132 +114,40 @@ class LiveStationSearchEngine(
         normalizedQuery: String,
         queryWords: List<String>
     ): Int {
-        val normalizedName =
-            normalize(name)
-
-        val normalizedTags =
-            normalize(tags)
-
-        val normalizedState =
-            normalize(state)
-
-        val normalizedCountry =
-            normalize(countryCode)
-
-        val normalizedLanguage =
-            normalize(language)
+        val normalizedName = normalize(name)
+        val normalizedTags = normalize(tags)
+        val normalizedState = normalize(state)
+        val normalizedCountry = normalize(countryCode)
+        val normalizedLanguage = normalize(language)
 
         if (normalizedName.isBlank()) {
             return 0
         }
 
-        var score = 0
+        // 1. Give every station returned by the search a baseline score so it isn't discarded
+        var score = 100
 
         when {
-            normalizedName == normalizedQuery -> {
-                score += 1_000
-            }
-
-            normalizedName.startsWith(normalizedQuery) -> {
-                score += 800
-            }
-
-            normalizedName.contains(normalizedQuery) -> {
-                score += 650
-            }
-
-            normalizedTags == normalizedQuery -> {
-                score += 550
-            }
-
-            containsWholePhrase(
-                text = normalizedTags,
-                phrase = normalizedQuery
-            ) -> {
-                score += 500
-            }
-
-            normalizedState.contains(normalizedQuery) -> {
-                // If the STATE matches (e.g. Hawaii), give it a huge boost!
-                score += 700
-            }
+            normalizedName == normalizedQuery -> score += 1_000
+            normalizedName.startsWith(normalizedQuery) -> score += 800
+            normalizedName.contains(normalizedQuery) -> score += 650
+            normalizedTags == normalizedQuery -> score += 550
+            normalizedTags.contains(normalizedQuery) -> score += 500
+            normalizedState.contains(normalizedQuery) -> score += 700
         }
 
         if (queryWords.isNotEmpty()) {
-            val nameWordMatches =
-                queryWords.count { word ->
-                    containsWholeWord(
-                        text = normalizedName,
-                        word = word
-                    )
-                }
-
-            val tagWordMatches =
-                queryWords.count { word ->
-                    containsWholeWord(
-                        text = normalizedTags,
-                        word = word
-                    )
-                }
-
-            val locationWordMatches =
-                queryWords.count { word ->
-                    containsWholeWord(
-                        text = normalizedState,
-                        word = word
-                    ) ||
-                            containsWholeWord(
-                                text = normalizedCountry,
-                                word = word
-                            )
-                }
-
-            val languageWordMatches =
-                queryWords.count { word ->
-                    containsWholeWord(
-                        text = normalizedLanguage,
-                        word = word
-                    )
-                }
+            val nameWordMatches = queryWords.count { word -> normalizedName.contains(word) }
+            val tagWordMatches = queryWords.count { word -> normalizedTags.contains(word) }
+            val locationWordMatches = queryWords.count { word ->
+                normalizedState.contains(word) || normalizedCountry.contains(word)
+            }
+            val languageWordMatches = queryWords.count { word -> normalizedLanguage.contains(word) }
 
             score += nameWordMatches * 140
             score += tagWordMatches * 90
             score += locationWordMatches * 70
             score += languageWordMatches * 60
-
-            val requiredMatches =
-                when {
-                    queryWords.size <= 1 -> 1
-                    queryWords.size == 2 -> 1
-                    else -> 2
-                }
-
-            val meaningfulMatches =
-                nameWordMatches +
-                        tagWordMatches +
-                        locationWordMatches +
-                        languageWordMatches
-
-            if (
-                score < 500 &&
-                meaningfulMatches < requiredMatches
-            ) {
-                return 0
-            }
-
-            if (
-                queryWords.size > 1 &&
-                nameWordMatches == queryWords.size
-            ) {
-                score += 250
-            }
-
-            if (
-                queryWords.size > 1 &&
-                tagWordMatches == queryWords.size
-            ) {
-                score += 180
-            }
         }
 
         if (resolvedStreamUrl.isNotBlank()) {
@@ -251,6 +159,7 @@ class LiveStationSearchEngine(
 
         return score
     }
+
 
     private fun RadioBrowserStation.toStation(
         searchQuery: String

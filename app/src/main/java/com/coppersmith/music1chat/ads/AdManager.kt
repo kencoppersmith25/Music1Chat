@@ -1,20 +1,19 @@
 package com.coppersmith.music1chat.ads
 
+import android.app.Activity
 import android.app.Application
 import android.os.SystemClock
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.FullScreenContentCallback
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.interstitial.InterstitialAd
+import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Central advertising policy for Music1Chat.
- *
- * This first version deliberately has no dependency on an advertising SDK.
- * It decides whether an ad is allowed and delegates actual display work to
- * callbacks supplied later by the AdMob integration layer.
+ * Central advertising policy for No Hands Radio.
  */
 object AdManager {
-
-    private const val MINIMUM_INTERSTITIAL_INTERVAL_MS =
-        20L * 60L * 1_000L
 
     private const val STARTUP_GRACE_PERIOD_MS =
         8L * 1_000L
@@ -24,14 +23,12 @@ object AdManager {
 
     private val initialized = AtomicBoolean(false)
     private val interstitialShowing = AtomicBoolean(false)
+    private var mInterstitialAd: InterstitialAd? = null
 
     private var isAppInForeground: () -> Boolean = { false }
     private var isScreenInteractive: () -> Boolean = { true }
     private var isPlaybackRequested: () -> Boolean = { false }
 
-    /**
-     * Called once from Application.onCreate().
-     */
     fun initialize(
         application: Application,
         appInForegroundProvider: () -> Boolean,
@@ -42,74 +39,88 @@ object AdManager {
             return
         }
 
-        // Retaining Application here is safe if the ad SDK later needs it.
-        application.applicationContext
-
         isAppInForeground = appInForegroundProvider
         isScreenInteractive = screenInteractiveProvider
         isPlaybackRequested = playbackRequestedProvider
         applicationStartedAtElapsedMs = SystemClock.elapsedRealtime()
+
+        loadInterstitial(application)
     }
 
-    /**
-     * Returns true when a persistent banner may be visible.
-     *
-     * Banners are allowed while music is playing because they do not interfere
-     * with audio. They should only be attached to visible app screens.
-     */
+    private fun loadInterstitial(application: Application) {
+        if (!AdConfig.SHOW_INTERSTITIALS) return
+        
+        val adRequest = AdRequest.Builder().build()
+        InterstitialAd.load(application, AdConfig.ANDROID_INTERSTITIAL_ID, adRequest,
+            object : InterstitialAdLoadCallback() {
+                override fun onAdFailedToLoad(adError: LoadAdError) {
+                    mInterstitialAd = null
+                }
+
+                override fun onAdLoaded(interstitialAd: InterstitialAd) {
+                    mInterstitialAd = interstitialAd
+                }
+            })
+    }
+
     fun mayShowBanner(): Boolean {
         return initialized.get() &&
                 isAppInForeground() &&
                 isScreenInteractive()
     }
 
-    /**
-     * Attempts to show a full-screen visual ad.
-     *
-     * Playback may continue underneath the ad. The callback must not pause,
-     * stop, replace, or otherwise manipulate Music1Chat playback.
-     */
     fun maybeShowInterstitial(
+        activity: Activity,
         reason: AdReason,
-        showAd: (onDismissed: () -> Unit) -> Boolean
+        onDismissed: () -> Unit = {}
     ): AdDecision {
         val decision = evaluateInterstitial(reason)
 
         if (decision != AdDecision.ALLOWED) {
+            onDismissed()
             return decision
         }
 
-        if (!interstitialShowing.compareAndSet(false, true)) {
-            return AdDecision.ALREADY_SHOWING
-        }
-
-        val accepted = try {
-            showAd {
-                interstitialShowing.set(false)
-            }
-        } catch (_: Throwable) {
-            interstitialShowing.set(false)
-            false
-        }
-
-        if (!accepted) {
-            interstitialShowing.set(false)
+        val ad = mInterstitialAd
+        if (ad == null) {
+            loadInterstitial(activity.application)
+            onDismissed()
             return AdDecision.AD_NOT_READY
         }
 
-        lastInterstitialShownAtElapsedMs =
-            SystemClock.elapsedRealtime()
+        if (!interstitialShowing.compareAndSet(false, true)) {
+            onDismissed()
+            return AdDecision.ALREADY_SHOWING
+        }
+
+        ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+            override fun onAdDismissedFullScreenContent() {
+                interstitialShowing.set(false)
+                mInterstitialAd = null
+                loadInterstitial(activity.application)
+                onDismissed()
+            }
+
+            override fun onAdFailedToShowFullScreenContent(error: com.google.android.gms.ads.AdError) {
+                interstitialShowing.set(false)
+                mInterstitialAd = null
+                onDismissed()
+            }
+        }
+
+        lastInterstitialShownAtElapsedMs = SystemClock.elapsedRealtime()
+        ad.show(activity)
 
         return AdDecision.ALLOWED
-    }
-
-    fun onInterstitialDismissed() {
-        interstitialShowing.set(false)
     }
 
     private fun evaluateInterstitial(
         reason: AdReason
     ): AdDecision {
+        if (!AdConfig.SHOW_INTERSTITIALS) {
+            return AdDecision.REASON_DISABLED
+        }
+        
         if (!initialized.get()) {
             return AdDecision.NOT_INITIALIZED
         }
@@ -128,17 +139,12 @@ object AdManager {
 
         val now = SystemClock.elapsedRealtime()
 
-        if (
-            now - applicationStartedAtElapsedMs <
-            STARTUP_GRACE_PERIOD_MS
-        ) {
+        if (now - applicationStartedAtElapsedMs < STARTUP_GRACE_PERIOD_MS) {
             return AdDecision.STARTUP_GRACE_PERIOD
         }
 
-        if (
-            lastInterstitialShownAtElapsedMs != Long.MIN_VALUE &&
-            now - lastInterstitialShownAtElapsedMs <
-            MINIMUM_INTERSTITIAL_INTERVAL_MS
+        if (lastInterstitialShownAtElapsedMs != Long.MIN_VALUE &&
+            now - lastInterstitialShownAtElapsedMs < AdConfig.MINIMUM_INTERSTITIAL_INTERVAL_MS
         ) {
             return AdDecision.TOO_SOON
         }
@@ -147,13 +153,6 @@ object AdManager {
             return AdDecision.REASON_DISABLED
         }
 
-        /*
-         * Music may continue playing beneath a visual interstitial. We do not
-         * pause or stop Music1Chat playback here. The advertising SDK remains
-         * responsible for the ad's own presentation and audio behavior.
-         */
-        isPlaybackRequested()
-
         return AdDecision.ALLOWED
     }
 
@@ -161,15 +160,7 @@ object AdManager {
         return when (this) {
             AdReason.FIRST_MANUAL_PLAY -> true
             AdReason.RETURN_TO_APP -> true
-
-            // Keep these disabled initially. They can be enabled later without
-            // changing MainScreen, Settings, or search code.
-            AdReason.APP_START -> false
-            AdReason.SEARCH_COMPLETED -> false
-            AdReason.OPEN_SETTINGS -> false
-            AdReason.STATION_CHANGE -> false
-            AdReason.BLUETOOTH_COMMAND -> false
-            AdReason.CAST_COMMAND -> false
+            else -> false
         }
     }
 }

@@ -226,15 +226,23 @@ fun Content(
             Spacer(modifier = Modifier.height(4.dp)) // Reduced from 8.dp
             Text(
                 text = message,
-                color = MaterialTheme.colorScheme.onBackground,
+                color = Color.White, // High-contrast white for all status/error messages
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center
             )
         } ?: run {
-            if (startupRestoreComplete && !isPlaying) {
+            if (startupRestoreComplete && !playbackRequested) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = "Stopped",
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 13.sp,
+                    textAlign = TextAlign.Center
+                )
+            } else if (startupRestoreComplete && playbackRequested && !isPlaying) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Connecting…",
                     color = MaterialTheme.colorScheme.onBackground,
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center

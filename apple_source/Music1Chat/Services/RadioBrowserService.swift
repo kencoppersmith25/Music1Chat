@@ -18,21 +18,20 @@ enum RadioBrowserServiceError: LocalizedError {
 }
 
 struct RadioBrowserService {
+    // Dedicated, stable server mirrors (removing the flaky round-robin DNS entry)
     private let baseURLs: [URL] = [
         "https://de1.api.radio-browser.info",
-        "https://at1.api.radio-browser.info",
-        "https://fr1.api.radio-browser.info",
         "https://nl1.api.radio-browser.info",
-        "http://de1.api.radio-browser.info", // Fallback to HTTP for TLS issues
-        "http://at1.api.radio-browser.info"
-    ].compactMap { (str: String) -> URL? in URL(string: str) }
+        "https://at1.api.radio-browser.info",
+        "https://fr1.api.radio-browser.info"
+    ].compactMap { URL(string: $0) }
 
     private let session: URLSession
 
     init() {
-        let configuration = URLSessionConfiguration.ephemeral
+        let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 6
-        configuration.timeoutIntervalForResource = 8
+        configuration.timeoutIntervalForResource = 10
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         session = URLSession(configuration: configuration)
     }
@@ -48,32 +47,31 @@ struct RadioBrowserService {
         }
 
         let safeLimit = min(max(limit, 1), 100)
-        var hadDirectoryFailure = false
+        RideLogger.shared.log("SEARCH_START: query='\(trimmed)' limit=\(safeLimit)")
 
-        for baseURL in baseURLs {
-            if Task.isCancelled {
-                throw CancellationError()
+        // Parallel fetch with individual error isolation so one dead server never cancels others
+        return try await withTaskGroup(of: [RadioBrowserStation]?.self) { group in
+            for url in baseURLs {
+                group.addTask {
+                    do {
+                        return try await self.search(on: url, text: trimmed, finalLimit: safeLimit)
+                    } catch {
+                        RideLogger.shared.log("SEARCH_MIRROR_FAILED: server='\(url.host ?? "")' error='\(error.localizedDescription)'")
+                        return nil
+                    }
+                }
             }
 
-            do {
-                let stations = try await search(
-                    on: baseURL,
-                    text: trimmed,
-                    finalLimit: safeLimit
-                )
-                return stations
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                hadDirectoryFailure = true
+            for await result in group {
+                if let stations = result, !stations.isEmpty {
+                    RideLogger.shared.log("SEARCH_SUCCESS: stations=\(stations.count)")
+                    group.cancelAll()
+                    return stations
+                }
             }
-        }
 
-        if hadDirectoryFailure {
-            throw RadioBrowserServiceError.temporarilyUnavailable
+            return []
         }
-
-        return []
     }
 
     private func search(
@@ -83,55 +81,54 @@ struct RadioBrowserService {
     ) async throws -> [RadioBrowserStation] {
         let normalized = text.lowercased()
         var collected: [RadioBrowserStation] = []
-        var successfulRequestCount = 0
 
-        try await withTaskGroup(of: [RadioBrowserStation].self) { group in
-            // 1. Core Searches
-            group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: text)) ?? [] }
-            group.addTask { (try? await self.fetch(baseURL: baseURL, field: "tag", text: text)) ?? [] }
+        // Fetch sub-queries independently without failing the entire server attempt
+        await withTaskGroup(of: [RadioBrowserStation]?.self) { group in
+            group.addTask {
+                try? await self.fetch(baseURL: baseURL, field: "name", text: text, limit: finalLimit)
+            }
+            group.addTask {
+                try? await self.fetch(baseURL: baseURL, field: "tag", text: text, limit: finalLimit)
+            }
 
-            // 2. Ultra Hawaiian Synergy
             if normalized.contains("hawai") {
-                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "state", text: "Hawaii")) ?? [] }
-                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "tag", text: "hawaiian")) ?? [] }
-                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Honolulu")) ?? [] }
-                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Maui")) ?? [] }
-                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Aloha")) ?? [] }
-                group.addTask { (try? await self.fetch(baseURL: baseURL, field: "name", text: "Hawaii Music Live")) ?? [] }
+                group.addTask {
+                    try? await self.fetch(baseURL: baseURL, field: "state", text: "Hawaii", limit: 30)
+                }
+                group.addTask {
+                    try? await self.fetch(baseURL: baseURL, field: "tag", text: "hawaiian", limit: 30)
+                }
             }
 
             for await results in group {
-                if !results.isEmpty {
-                    collected.append(contentsOf: results)
-                    successfulRequestCount += 1
+                if let validResults = results {
+                    collected.append(contentsOf: validResults)
                 }
             }
         }
 
-        guard successfulRequestCount > 0 else {
-            throw RadioBrowserServiceError.temporarilyUnavailable
-        }
-
         // 1. Filter out invalid records
-        let validStations = collected.filter { (station: RadioBrowserStation) -> Bool in
-            let cleanedName = station.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let rawURL = station.urlResolved ?? station.url
+        let validStations = collected.filter { station in
+            let cleanedName = station.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let rawURL = station.url_resolved ?? station.url ?? ""
             let cleanedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
             return !cleanedName.isEmpty && !cleanedURL.isEmpty
         }
 
-        // 2. Combine and deduplicate
-        var seen = Set<String>()
-        let deduplicated = validStations.filter { (station: RadioBrowserStation) -> Bool in
-            let uuid = station.stationuuid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let rawURL = station.urlResolved ?? station.url
-            let cleanedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // 2. Deduplicate by UUID
+        var seenUUIDs = Set<String>()
+        let deduplicated = validStations.filter { station in
+            let uuid = station.stationuuid?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+            let hasValidUUID = !uuid.isEmpty && uuid != "00000000-0000-0000-0000-000000000000"
 
-            let key = uuid.isEmpty ? cleanedURL : uuid
-            if seen.contains(key) {
-                return false
+            if hasValidUUID {
+                if seenUUIDs.contains(uuid) {
+                    return false
+                } else {
+                    seenUUIDs.insert(uuid)
+                    return true
+                }
             } else {
-                seen.insert(key)
                 return true
             }
         }
@@ -165,35 +162,39 @@ struct RadioBrowserService {
             }
         }
 
-        return result.compactMap { (s: RadioBrowserStation?) -> RadioBrowserStation? in s }
+        return result.compactMap { $0 }
     }
 
     private func fetch(
         baseURL: URL,
         field: String,
-        text: String
+        text: String,
+        limit: Int
     ) async throws -> [RadioBrowserStation] {
-
-        var components = URLComponents(
-            url: baseURL.appendingPathComponent("json/stations/search"),
-            resolvingAgainstBaseURL: false
-        )
-
-        components?.queryItems = [
+        let path = "/json/stations/search"
+        let queryItems = [
             URLQueryItem(name: field, value: text),
             URLQueryItem(name: "\(field)Exact", value: "false"),
             URLQueryItem(name: "hidebroken", value: "true"),
             URLQueryItem(name: "order", value: "clickcount"),
-            URLQueryItem(name: "reverse", value: "true")
+            URLQueryItem(name: "reverse", value: "true"),
+            URLQueryItem(name: "limit", value: String(limit))
         ]
 
-        guard let url = components?.url else {
-            throw RadioBrowserServiceError.invalidSearch
+        var url = baseURL.appendingPathComponent(path)
+        if #available(iOS 16.0, *) {
+            url = url.appending(queryItems: queryItems)
+        } else {
+            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            components?.queryItems = queryItems
+            if let finalURL = components?.url {
+                url = finalURL
+            }
         }
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 6
-        request.setValue("NoHandsRadio/1.1 iOS", forHTTPHeaderField: "User-Agent")
+        request.setValue("Music1Chat/1.0 iOS Radio Resolver", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         let (data, response) = try await session.data(for: request)
@@ -202,7 +203,7 @@ struct RadioBrowserService {
             throw RadioBrowserServiceError.invalidResponse
         }
 
-        guard 200299 ~= http.statusCode else {
+        guard 200...299 ~= http.statusCode else {
             throw RadioBrowserServiceError.temporarilyUnavailable
         }
 

@@ -1,11 +1,10 @@
 package com.coppersmith.music1chat.coordinator
 
 // Music1Chat coordinated release
-// Date: 2026-07-30
-// Release: 2026-07-30 v02
+// Date: 2026-09-01
+// Release: 2026-09-01 v03
 //
-// Merges the category-change decision logic into the existing
-// AnnouncementManager. No separate Announcement.kt is required.
+// Updates category announcements to forward search state to CategoryAnnouncer.
 
 import android.content.Context
 import com.coppersmith.music1chat.persistence.AppPreferences
@@ -57,11 +56,15 @@ class AnnouncementManager(
             return
         }
 
-        announceCategory(newState.categoryName)
+        announceCategory(
+            categoryName = newState.categoryName,
+            isSearchQueue = newState.isSearch
+        )
     }
 
     fun announceCategory(
-        categoryName: String
+        categoryName: String,
+        isSearchQueue: Boolean = false
     ) {
         if (suppressNextAnnouncement) {
             suppressNextAnnouncement = false
@@ -81,7 +84,14 @@ class AnnouncementManager(
             return
         }
 
-        speak(cleanCategoryName)
+        announcer.selectVoiceForSession(
+            preferences.loadCategoryAnnouncementVoiceId()
+        )
+
+        announcer.announceCategory(
+            categoryName = cleanCategoryName,
+            isSearchQueue = isSearchQueue
+        )
     }
 
     fun speak(text: String) {

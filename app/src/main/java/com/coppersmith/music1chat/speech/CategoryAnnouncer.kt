@@ -1,11 +1,12 @@
 package com.coppersmith.music1chat.speech
 
-// Music1Chat revision: 2026-07-27 v01
+// Music1Chat revision: 2026-09-01 v02
 //
 // Adds support for:
 // - loading the user's saved Android voice,
 // - temporarily selecting a voice for testing,
-// - falling back safely to the phone's default voice.
+// - falling back safely to the phone's default voice,
+// - prefixing search queue category announcements with "Search ".
 
 import android.content.Context
 import android.speech.tts.TextToSpeech
@@ -70,6 +71,8 @@ class CategoryAnnouncer(
         initializationComplete = true
         initializationSucceeded =
             status == TextToSpeech.SUCCESS
+
+        android.util.Log.d("KenVoice", "TTS init status=$status success=$initializationSucceeded")
 
         if (!initializationSucceeded) {
             pendingUtterance = null
@@ -155,17 +158,53 @@ class CategoryAnnouncer(
     /**
      * Speaks the supplied category name unless it is an accidental,
      * immediate duplicate of the previous announcement.
+     *
+     * If isSearchQueue is true (or if the category name is prefixed with "search:"),
+     * it speaks "Search <name>" (e.g., "Search Classical").
+     */
+    /**
+     * Speaks the supplied category name unless it is an accidental,
+     * immediate duplicate of the previous announcement.
+     *
+     * Automatically inspects AppPreferences to see if the given category
+     * matches a saved search queue, prepending "Search " if so.
      */
     fun announceCategory(
-        categoryName: String
+        categoryName: String,
+        isSearchQueue: Boolean = false
     ) {
+        val trimmed = categoryName.trim()
+
+        var isSearch = isSearchQueue ||
+                trimmed.startsWith("search:", ignoreCase = true) ||
+                trimmed.startsWith("voice:", ignoreCase = true)
+
+        val cleanName = when {
+            trimmed.startsWith("search:", ignoreCase = true) -> trimmed.substring(7).trim()
+            trimmed.startsWith("voice:", ignoreCase = true) -> trimmed.substring(6).trim()
+            else -> trimmed
+        }
+
+        // Check if cleanName matches any saved search query in AppPreferences
+        if (!isSearch) {
+            val savedSearches = appPreferences.loadSearchCategories()
+            if (savedSearches.any { it.query.equals(cleanName, ignoreCase = true) }) {
+                isSearch = true
+            }
+        }
+
+        val formattedName = if (isSearch && !cleanName.startsWith("search ", ignoreCase = true)) {
+            "Search $cleanName"
+        } else {
+            cleanName
+        }
+
         speak(
-            text = categoryName,
+            text = formattedName,
             force = false,
             refreshSavedVoice = true
         )
     }
-
     /**
      * Tests the voice currently configured in this announcer.
      */
@@ -286,9 +325,8 @@ class CategoryAnnouncer(
         engine.setSpeechRate(0.92f)
         engine.setPitch(1.0f)
 
-        // Adding leading silence markers ("...") helps Bluetooth headsets wake up
-        // before the actual word starts.
-        val paddedText = "... $text"
+        // Padded text removed to ensure clean utterance tracking
+        val paddedText = text
 
         val result =
             engine.speak(
@@ -298,10 +336,7 @@ class CategoryAnnouncer(
                 "music1chat-category-$now"
             )
 
-        android.util.Log.d(
-            "KenVoice",
-            "speak() returned $result for '$text'"
-        )
+        android.util.Log.d("KenVoice", "speak() returned $result for '$text' id=music1chat-category-$now")
     }
 
     private fun applySavedVoice(

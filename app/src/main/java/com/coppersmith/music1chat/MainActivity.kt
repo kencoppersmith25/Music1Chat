@@ -10,12 +10,18 @@ import androidx.lifecycle.Lifecycle
 import com.coppersmith.music1chat.ads.AdManager
 import com.google.android.gms.ads.MobileAds
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.coppersmith.music1chat.diagnostics.MaintenanceManager
+import com.coppersmith.music1chat.diagnostics.RideLogger
 
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        // Perform automatic diagnostics and cleaning on startup
+        RideLogger.startAutomatically(this)
+        MaintenanceManager.scrub(this)
 
         // Initialize Mobile Ads SDK
         MobileAds.initialize(this) {}
