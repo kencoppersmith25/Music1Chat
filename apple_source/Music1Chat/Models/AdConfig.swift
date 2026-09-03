@@ -6,7 +6,8 @@ import Foundation
  */
 struct AdConfig {
     // --- MASTER CONTROLS ---
-    static let useTestAds = true // SET TO FALSE FOR APP STORE RELEASE
+    //setting this one to false now...
+    static let useTestAds = false // SET TO FALSE FOR APP STORE RELEASE
     static let showInterstitials = true
 
     // Timer control (set to 20 mins for production, 5 mins for testing)
@@ -21,7 +22,7 @@ struct AdConfig {
 
     // Your Live Production IDs
     private static let liveBannerID = "ca-app-pub-6232643827829257/2486278674"
-    private static let liveInterstitialID = "" // Add your live ID here when ready
+    private static let liveInterstitialID = "ca-app-pub-6232643827829257/1620348169"
 
     static var bannerID: String {
         return useTestAds ? testBannerID : liveBannerID

@@ -176,7 +176,7 @@ struct SettingsPanel: View {
 
     @EnvironmentObject private var player: AudioPlayerService
     @State private var showVoicePicker = false
-    @State private var developerModeActive = false
+    @State private var showLogViewer = false
     @State private var versionTapCount = 0
 
     var body: some View {
@@ -206,19 +206,20 @@ struct SettingsPanel: View {
                         Divider()
                         previousTrackSection
 
-                        if developerModeActive {
+                        if settings.developerModeActive {
                             Divider()
                             diagnosticSection
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
 
                         Divider()
                         aboutSection
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 40)
                 }
             }
             .padding(20)
-            .frame(maxWidth: 360, maxHeight: 520) // Shrunk for SE
+            .frame(maxWidth: 360, maxHeight: 520)
             .background(
                 RoundedRectangle(cornerRadius: 24)
                     .fill(Color(.secondarySystemBackground))
@@ -232,6 +233,9 @@ struct SettingsPanel: View {
             if showVoicePicker {
                 voicePickerOverlay
             }
+        }
+        .sheet(isPresented: $showLogViewer) {
+            LogViewerModalView()
         }
     }
 
@@ -366,10 +370,31 @@ struct SettingsPanel: View {
                 .foregroundStyle(.purple)
 
             Button {
+                showLogViewer = true
+            } label: {
+                HStack {
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 20))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("View Ride Log")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("Inspect technical logs directly on device.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
                 shareLog()
             } label: {
                 HStack {
-                    Image(systemName: "doc.text.fill")
+                    Image(systemName: "square.and.arrow.up")
                         .font(.system(size: 20))
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Share Ride Log")
@@ -386,14 +411,14 @@ struct SettingsPanel: View {
             }
             .buttonStyle(.plain)
 
-            Button(role: .destructive) {
-                RideLogger.shared.clearLog()
-            } label: {
-                HStack {
-                    Image(systemName: "trash.fill")
-                    Text("Clear Log")
-                }
-            }
+//             Button(role: .destructive) {
+//                 RideLogger.shared.clearLog()
+//             } label: {
+//                 HStack {
+//                     Image(systemName: "trash.fill")
+//                     Text("Clear Log")
+//                 }
+//             }
             .buttonStyle(.bordered)
             .padding(.top, 4)
         }
@@ -401,9 +426,34 @@ struct SettingsPanel: View {
 
     private var aboutSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("About")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.purple)
+            HStack {
+                Text("About")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.purple)
+
+                Spacer()
+
+                if settings.developerModeActive {
+                    Text("Dev Mode Active")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.purple)
+                }
+            }
+            .contentShape(Rectangle())
+            .allowsHitTesting(true)
+            .onTapGesture {
+                versionTapCount += 1
+                print("DEBUG: About header tapped count = \(versionTapCount)")
+
+                if versionTapCount >= 5 {
+                    Task { @MainActor in
+                        withAnimation {
+                            settings.developerModeActive.toggle()
+                        }
+                    }
+                    versionTapCount = 0
+                }
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("No Hands Radio")
@@ -413,19 +463,10 @@ struct SettingsPanel: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
 
-                Button {
-                    versionTapCount += 1
-                    if versionTapCount >= 5 {
-                        developerModeActive.toggle()
-                        versionTapCount = 0
-                    }
-                } label: {
-                    Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.plain)
+                Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0") (\(Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 4)
             }
         }
     }
@@ -438,7 +479,6 @@ struct SettingsPanel: View {
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
 
-            // For iPad compatibility
             if let popover = activityVC.popoverPresentationController {
                 popover.sourceView = rootVC.view
                 popover.sourceRect = CGRect(x: rootVC.view.bounds.midX, y: rootVC.view.bounds.midY, width: 0, height: 0)
@@ -545,10 +585,8 @@ struct SettingsPanel: View {
 
         return Button {
             settings.categoryVoiceIdentifier = identifier
-            // DUCK music during preview
             player.setVolume(0.15)
             speaker.previewVoice(identifier: identifier) {
-                // Restore volume
                 player.setVolume(1.0)
             }
         } label: {
@@ -589,6 +627,48 @@ struct SettingsPanel: View {
             return "Enhanced voice"
         default:
             return "Available on this iPhone"
+        }
+    }
+}
+
+// MARK: - Log Viewer Modal
+struct LogViewerModalView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var logContent: String = ""
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                Text(logContent.isEmpty ? "No log entries recorded." : logContent)
+                    .font(.system(.caption, design: .monospaced))
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .navigationTitle("Ride Log")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Clear") {
+                        RideLogger.shared.clearLog()
+                        loadLog()
+                    }
+                }
+            }
+            .onAppear {
+                loadLog()
+            }
+        }
+    }
+
+    private func loadLog() {
+        if let url = RideLogger.shared.getLogURL(),
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            logContent = text
+        } else {
+            logContent = "No log file found."
         }
     }
 }
