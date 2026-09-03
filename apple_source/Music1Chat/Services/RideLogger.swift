@@ -35,30 +35,31 @@ final class RideLogger: @unchecked Sendable {
         }
     }
 
-    func log(_ message: String) {
-        let timestamp = dateFormatter.string(from: Date())
-        let logEntry = "\(timestamp)  \(message)\n"
+ func log(_ message: String) {
+     // Console output for active debugging
+     print(message)
 
-        // Console output for active debugging
-        print(logEntry.trimmingCharacters(in: .newlines))
+     // Background write
+     writeQueue.async { [weak self] in
+         guard let self = self, let url = self.logFileURL else { return }
 
-        // Background write
-        writeQueue.async { [weak self] in
-            guard let self = self, let url = self.logFileURL else { return }
+         // Thread-safe date formatting inside the serial queue
+         let timestamp = self.dateFormatter.string(from: Date())
+         let logEntry = "\(timestamp)  \(message)\n"
 
-            if let data = logEntry.data(using: .utf8) {
-                if FileManager.default.fileExists(atPath: url.path) {
-                    if let fileHandle = try? FileHandle(forWritingTo: url) {
-                        fileHandle.seekToEndOfFile()
-                        fileHandle.write(data)
-                        fileHandle.closeFile()
-                    }
-                } else {
-                    try? data.write(to: url, options: .atomic)
-                }
-            }
-        }
-    }
+         if let data = logEntry.data(using: .utf8) {
+             if FileManager.default.fileExists(atPath: url.path) {
+                 if let fileHandle = try? FileHandle(forWritingTo: url) {
+                     fileHandle.seekToEndOfFile()
+                     fileHandle.write(data)
+                     fileHandle.closeFile()
+                 }
+             } else {
+                 try? data.write(to: url, options: .atomic)
+             }
+         }
+     }
+ }
 
     private func pruneOldEntries() {
         guard let url = logFileURL,

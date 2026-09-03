@@ -1,153 +1,152 @@
 import Foundation
 
-enum RadioBrowserServiceError: LocalizedError {
-    case invalidSearch
-    case temporarilyUnavailable
-    case invalidResponse
+struct RadioBrowserStationDTO: Decodable, Sendable {
+    let stationuuid: String
+    let name: String
+    let url: String
+    let url_resolved: String?
+    let favicon: String?
+    let tags: String?
+    let countrycode: String?
+    let state: String?
+    let language: String?
+    let codec: String?
+    let bitrate: Int?
+    let votes: Int?
+    let clickcount: Int?
 
-    var errorDescription: String? {
-        switch self {
-        case .invalidSearch:
-            return "Please enter something to search for."
-        case .temporarilyUnavailable:
-            return "Station search is temporarily unavailable. Please try again."
-        case .invalidResponse:
-            return "The station directory returned an invalid response."
-        }
+    var asStation: Station {
+        let stream = (url_resolved?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? url_resolved!
+            : url
+
+        return Station(
+            id: UUID(),
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            streamURL: stream.trimmingCharacters(in: .whitespacesAndNewlines),
+            categoryIDs: [],
+            artworkURL: favicon?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? favicon : nil
+        )
     }
 }
 
-struct RadioBrowserService {
-    // Dedicated, stable server mirrors (removing the flaky round-robin DNS entry)
-    private let baseURLs: [URL] = [
+final class RadioBrowserService: Sendable {
+    private let baseUrls = [
         "https://de1.api.radio-browser.info",
-        "https://nl1.api.radio-browser.info",
-        "https://at1.api.radio-browser.info",
-        "https://fr1.api.radio-browser.info"
-    ].compactMap { URL(string: $0) }
+        "https://all.api.radio-browser.info",
+        "https://de2.api.radio-browser.info",
+        "https://fi1.api.radio-browser.info",
+        "https://nl1.api.radio-browser.info"
+    ]
 
-    private let session: URLSession
+    private let userAgent = "NoHandsRadio/1.1 iOS"
 
-    init() {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 6
-        configuration.timeoutIntervalForResource = 10
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
-    }
+    func searchStations(for query: String, limit: Int = 100) async throws -> [RadioBrowserStationDTO] {
+        let searchText = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !searchText.isEmpty else { return [] }
 
-    func searchStations(
-        for searchText: String,
-        limit: Int = 50
-    ) async throws -> [RadioBrowserStation] {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let safeLimit = min(max(limit, 1), 200)
+        var hadDirectoryFailure = false
 
-        guard !trimmed.isEmpty else {
-            throw RadioBrowserServiceError.invalidSearch
+        for baseUrl in baseUrls {
+            do {
+                let results = try await executeMultiSearch(baseUrl: baseUrl, text: searchText, finalLimit: safeLimit)
+                if !results.isEmpty {
+                    return results
+                }
+            } catch {
+                hadDirectoryFailure = true
+            }
         }
 
-        let safeLimit = min(max(limit, 1), 100)
-        RideLogger.shared.log("SEARCH_START: query='\(trimmed)' limit=\(safeLimit)")
-
-        // Parallel fetch with individual error isolation so one dead server never cancels others
-        return try await withTaskGroup(of: [RadioBrowserStation]?.self) { group in
-            for url in baseURLs {
-                group.addTask {
-                    do {
-                        return try await self.search(on: url, text: trimmed, finalLimit: safeLimit)
-                    } catch {
-                        RideLogger.shared.log("SEARCH_MIRROR_FAILED: server='\(url.host ?? "")' error='\(error.localizedDescription)'")
-                        return nil
-                    }
-                }
-            }
-
-            for await result in group {
-                if let stations = result, !stations.isEmpty {
-                    RideLogger.shared.log("SEARCH_SUCCESS: stations=\(stations.count)")
-                    group.cancelAll()
-                    return stations
-                }
-            }
-
-            return []
+        if hadDirectoryFailure {
+            throw NSError(domain: "RadioBrowserService", code: 503, userInfo: [NSLocalizedDescriptionKey: "Station search is temporarily unavailable. Please try again."])
         }
+
+        return []
     }
 
-    private func search(
-        on baseURL: URL,
-        text: String,
-        finalLimit: Int
-    ) async throws -> [RadioBrowserStation] {
+    private func executeMultiSearch(baseUrl: String, text: String, finalLimit: Int) async throws -> [RadioBrowserStationDTO] {
         let normalized = text.lowercased()
-        var collected: [RadioBrowserStation] = []
 
-        // Fetch sub-queries independently without failing the entire server attempt
-        await withTaskGroup(of: [RadioBrowserStation]?.self) { group in
-            group.addTask {
-                try? await self.fetch(baseURL: baseURL, field: "name", text: text, limit: finalLimit)
-            }
-            group.addTask {
-                try? await self.fetch(baseURL: baseURL, field: "tag", text: text, limit: finalLimit)
-            }
+        async let nameSearch = fetch(baseUrl: baseUrl, field: "name", text: text, limit: 100)
+        async let tagSearch = fetch(baseUrl: baseUrl, field: "tag", text: text, limit: 100)
 
-            if normalized.contains("hawai") {
-                group.addTask {
-                    try? await self.fetch(baseURL: baseURL, field: "state", text: "Hawaii", limit: 30)
-                }
-                group.addTask {
-                    try? await self.fetch(baseURL: baseURL, field: "tag", text: "hawaiian", limit: 30)
-                }
-            }
+        var collected = await (nameSearch + tagSearch)
 
-            for await results in group {
-                if let validResults = results {
-                    collected.append(contentsOf: validResults)
-                }
-            }
+        // Synergy Hawaii search matching Android
+        if normalized.contains("hawai") {
+            async let s1 = fetch(baseUrl: baseUrl, field: "state", text: "Hawaii", limit: 100)
+            async let s2 = fetch(baseUrl: baseUrl, field: "tag", text: "hawaiian", limit: 100)
+            async let s3 = fetch(baseUrl: baseUrl, field: "name", text: "Honolulu", limit: 60)
+            async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Maui", limit: 50)
+            async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Kauai", limit: 40)
+            async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Kona", limit: 40)
+            async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Aloha", limit: 40)
+            async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Hawaii Music Live", limit: 30)
+
+            let hawaiiResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8)
+            collected.append(contentsOf: hawaiiResults)
         }
 
-        // 1. Filter out invalid records
         let validStations = collected.filter { station in
-            let cleanedName = station.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let rawURL = station.url_resolved ?? station.url ?? ""
-            let cleanedURL = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !cleanedName.isEmpty && !cleanedURL.isEmpty
+            let cleanedName = station.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let playbackUrl = (station.url_resolved?.isEmpty == false ? station.url_resolved! : station.url).trimmingCharacters(in: .whitespacesAndNewlines)
+            return !cleanedName.isEmpty && !playbackUrl.isEmpty
         }
 
-        // 2. Deduplicate by UUID
-        var seenUUIDs = Set<String>()
-        let deduplicated = validStations.filter { station in
-            let uuid = station.stationuuid?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
-            let hasValidUUID = !uuid.isEmpty && uuid != "00000000-0000-0000-0000-000000000000"
+        // Deduplicate primarily by Station UUID and Exact Stream URL
+        var seenUuids = Set<String>()
+        var seenUrls = Set<String>()
 
-            if hasValidUUID {
-                if seenUUIDs.contains(uuid) {
-                    return false
-                } else {
-                    seenUUIDs.insert(uuid)
-                    return true
-                }
+        let uniqueStations = validStations.filter { station in
+            let uuid = station.stationuuid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let hasValidUuid = !uuid.isEmpty && uuid != "00000000-0000-0000-0000-000000000000"
+
+            let rawUrl = (station.url_resolved?.isEmpty == false ? station.url_resolved! : station.url).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+            let isUuidDuplicate = hasValidUuid && seenUuids.contains(uuid)
+            let isUrlDuplicate = seenUrls.contains(rawUrl)
+
+            if isUuidDuplicate || isUrlDuplicate {
+                return false
             } else {
+                if hasValidUuid { seenUuids.insert(uuid) }
+                seenUrls.insert(rawUrl)
                 return true
             }
         }
 
-        // 3. Limit and Interleave
-        let limitedResults = Array(deduplicated.prefix(finalLimit))
-        return interleaveStations(limitedResults)
+        // Rank by relevance matching Android LiveStationSearchEngine
+        let normalizedQuery = normalize(text)
+        let queryWords = tokenize(text)
+
+        let ranked = uniqueStations.compactMap { station -> (station: RadioBrowserStationDTO, score: Int)? in
+            let score = calculateRelevanceScore(station: station, normalizedQuery: normalizedQuery, queryWords: queryWords)
+            return score > 0 ? (station, score) : nil
+        }
+        .sorted {
+            if $0.score != $1.score { return $0.score > $1.score }
+            if ($0.station.votes ?? 0) != ($1.station.votes ?? 0) { return ($0.station.votes ?? 0) > ($1.station.votes ?? 0) }
+            return ($0.station.clickcount ?? 0) > ($1.station.clickcount ?? 0)
+        }
+        .map(\.station)
+
+        let limited = Array(ranked.prefix(finalLimit))
+        return interleaveStations(limited)
     }
 
-    private func interleaveStations(_ stations: [RadioBrowserStation]) -> [RadioBrowserStation] {
+    // Android Stride-7 Interleaver
+    private func interleaveStations(_ stations: [RadioBrowserStationDTO]) -> [RadioBrowserStationDTO] {
         let count = stations.count
-        if count <= 1 { return stations }
+        guard count > 1 else { return stations }
 
-        let stride = 10
-        var result = [RadioBrowserStation?](repeating: nil, count: count)
+        let stride = 7
+        var result: [RadioBrowserStationDTO?] = Array(repeating: nil, count: count)
 
         for i in 0..<count {
             let targetIndex = ((i * stride) % count) + ((i * stride) / count)
-            let safeIndex = max(0, min(targetIndex, count - 1))
+            let safeIndex = min(max(targetIndex, 0), count - 1)
 
             if result[safeIndex] == nil {
                 result[safeIndex] = stations[i]
@@ -165,48 +164,90 @@ struct RadioBrowserService {
         return result.compactMap { $0 }
     }
 
-    private func fetch(
-        baseURL: URL,
-        field: String,
-        text: String,
-        limit: Int
-    ) async throws -> [RadioBrowserStation] {
-        let path = "/json/stations/search"
-        let queryItems = [
-            URLQueryItem(name: field, value: text),
-            URLQueryItem(name: "\(field)Exact", value: "false"),
-            URLQueryItem(name: "hidebroken", value: "true"),
-            URLQueryItem(name: "order", value: "clickcount"),
-            URLQueryItem(name: "reverse", value: "true"),
-            URLQueryItem(name: "limit", value: String(limit))
-        ]
-
-        var url = baseURL.appendingPathComponent(path)
-        if #available(iOS 16.0, *) {
-            url = url.appending(queryItems: queryItems)
-        } else {
-            var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-            components?.queryItems = queryItems
-            if let finalURL = components?.url {
-                url = finalURL
-            }
+    private func fetch(baseUrl: String, field: String, text: String, limit: Int) async -> [RadioBrowserStationDTO] {
+        guard let encodedText = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "\(baseUrl)/json/stations/search?\(field)=\(encodedText)&\(field)Exact=false&order=votes&reverse=true&limit=\(limit)") else {
+            return []
         }
 
         var request = URLRequest(url: url)
-        request.timeoutInterval = 6
-        request.setValue("Music1Chat/1.0 iOS Radio Resolver", forHTTPHeaderField: "User-Agent")
+        request.httpMethod = "GET"
+        request.timeoutInterval = 8.0
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+                return []
+            }
+            return try JSONDecoder().decode([RadioBrowserStationDTO].self, from: data)
+        } catch {
+            return []
+        }
+    }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw RadioBrowserServiceError.invalidResponse
+    private func calculateRelevanceScore(station: RadioBrowserStationDTO, normalizedQuery: String, queryWords: [String]) -> Int {
+        let normalizedName = normalize(station.name)
+        let normalizedTags = normalize(station.tags ?? "")
+        let normalizedState = normalize(station.state ?? "")
+        let normalizedCountry = normalize(station.countrycode ?? "")
+        let normalizedLanguage = normalize(station.language ?? "")
+
+        guard !normalizedName.isEmpty else { return 0 }
+
+        var score = 100
+
+        if normalizedName == normalizedQuery {
+            score += 1000
+        } else if normalizedName.hasPrefix(normalizedQuery) {
+            score += 800
+        } else if normalizedName.contains(normalizedQuery) {
+            score += 650
+        } else if normalizedTags == normalizedQuery {
+            score += 550
+        } else if normalizedTags.contains(normalizedQuery) {
+            score += 500
+        } else if normalizedState.contains(normalizedQuery) {
+            score += 700
         }
 
-        guard 200...299 ~= http.statusCode else {
-            throw RadioBrowserServiceError.temporarilyUnavailable
+        if !queryWords.isEmpty {
+            let nameWordMatches = queryWords.filter { normalizedName.contains($0) }.count
+            let tagWordMatches = queryWords.filter { normalizedTags.contains($0) }.count
+            let locationWordMatches = queryWords.filter { normalizedState.contains($0) || normalizedCountry.contains($0) }.count
+            let languageWordMatches = queryWords.filter { normalizedLanguage.contains($0) }.count
+
+            score += nameWordMatches * 140
+            score += tagWordMatches * 90
+            score += locationWordMatches * 70
+            score += languageWordMatches * 60
         }
 
-        return try JSONDecoder().decode([RadioBrowserStation].self, from: data)
+        if let resolved = station.url_resolved, !resolved.isEmpty {
+            score += 25
+        }
+
+        score += min(station.votes ?? 0, 500) / 20
+        score += min(station.clickcount ?? 0, 2000) / 100
+
+        return score
+    }
+
+    private func normalize(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+    }
+
+    private func tokenize(_ value: String) -> [String] {
+        let genericWords: Set<String> = ["radio", "station", "music", "live", "online", "stream", "fm", "am", "the"]
+        return normalize(value)
+            .split(separator: " ")
+            .map(String.init)
+            .filter { $0.count >= 2 && !genericWords.contains($0) }
     }
 }

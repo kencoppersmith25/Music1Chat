@@ -47,6 +47,7 @@ final class AudioPlayerService: ObservableObject {
         let searchNavigation: [String: Bool]?
         let categoryNavigation: [String: Bool]?
         let stationNavigation: [String: Bool]?
+        let lastPlayedIndices: [String: Int]?
     }
 
     @Published private(set) var currentStation: Station?
@@ -78,7 +79,12 @@ final class AudioPlayerService: ObservableObject {
     private var player: AVPlayer?
     private var timeControlObservation: NSKeyValueObservation?
     private var itemStatusObservation: NSKeyValueObservation?
+    private var bufferEmptyObservation: NSKeyValueObservation?
+    private var likelyToKeepUpObservation: NSKeyValueObservation?
+    private var playbackStalledObserver: NSObjectProtocol?
+
     private var progressCheckTask: Task<Void, Never>?
+    private var stallRecoveryTask: Task<Void, Never>?
     private var lastObservedPosition: Double = -1
     private var positionStallCount = 0
     private var startupTask: Task<Void, Never>?
@@ -106,7 +112,7 @@ final class AudioPlayerService: ObservableObject {
     private var prefetchTasks: [String: Task<Void, Never>] = [:]
 
     private var playbackGeneration = 0
-    private var autoAdvanceOnFailure = false
+    private var autoAdvanceOnFailure = true
     private var failedQueueIndices = Set<Int>()
     private var isHandlingCastSwitch = false
 
@@ -133,13 +139,13 @@ final class AudioPlayerService: ObservableObject {
     private let networkMonitor = NWPathMonitor()
     private var isNetworkAvailable = true
 
-    // Stream watchdog cut down to fail fast on dead stations
     private let startupTimeoutNanoseconds: UInt64 = 4_500_000_000
     private let auditionTimeoutNanoseconds: UInt64 = 3_500_000_000
 
     private var searchNavigation: [String: Bool] = [:]
     private var categoryNavigation: [String: Bool] = [:]
     private var stationNavigation: [String: Bool] = [:]
+    private var lastPlayedIndices: [String: Int] = [:]
 
     init() {
         configureAudioSession()
@@ -163,6 +169,35 @@ final class AudioPlayerService: ObservableObject {
         playbackState == .resolving || playbackState == .connecting
     }
 
+    func lastKnownIndex(categoryID: UUID? = nil, queueName: String? = nil, count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let key: String
+        if let categoryID {
+            key = "cat:\(categoryID.uuidString)"
+        } else if let queueName, !queueName.isEmpty {
+            key = "search:\(normalizedName(queueName))"
+        } else {
+            return 0
+        }
+
+        if let saved = lastPlayedIndices[key], saved >= 0, saved < count {
+            return saved
+        }
+        return 0
+    }
+
+    private func recordLastPlayedIndex(index: Int) {
+        let key: String
+        if let activeLibraryCategoryID {
+            key = "cat:\(activeLibraryCategoryID.uuidString)"
+        } else if let activeQueueName, !activeQueueName.isEmpty {
+            key = "search:\(normalizedName(activeQueueName))"
+        } else {
+            return
+        }
+        lastPlayedIndices[key] = index
+    }
+
     func play(station: Station) {
         cancelAudition()
         if let index = activeQueue.firstIndex(where: { $0.id == station.id }) {
@@ -172,7 +207,7 @@ final class AudioPlayerService: ObservableObject {
                 queue: [station],
                 name: activeQueueName,
                 startAt: 0,
-                autoAdvanceOnFailure: false
+                autoAdvanceOnFailure: true
             )
         }
     }
@@ -196,7 +231,7 @@ final class AudioPlayerService: ObservableObject {
         activeLibraryCategoryID = libraryCategoryID
         currentQueueIndex = safeIndex
         failedQueueIndices.removeAll()
-        self.autoAdvanceOnFailure = autoAdvanceOnFailure
+        self.autoAdvanceOnFailure = true
         updateRemoteCommandAvailability()
         persistState(shouldResume: true)
         startQueueItem(at: safeIndex)
@@ -335,7 +370,8 @@ final class AudioPlayerService: ObservableObject {
 
     func auditionSavedSearchQueue(named name: String) {
         guard let saved = savedSearchQueues.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return }
-        audition(queue: saved.stations, name: saved.name, startAt: 0, step: 1, saveAsSearch: false, statusMessage: "Finding next category…")
+        let startIndex = lastKnownIndex(categoryID: nil, queueName: saved.name, count: saved.stations.count)
+        audition(queue: saved.stations, name: saved.name, startAt: startIndex, step: 1, saveAsSearch: false, statusMessage: "Finding next category…")
     }
 
     func cancelQueueAudition() {
@@ -344,12 +380,7 @@ final class AudioPlayerService: ObservableObject {
 
     func playSavedSearchQueue(named name: String) {
         guard let saved = savedSearchQueues.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) else { return }
-        let startIndex: Int
-        if activeQueueName?.caseInsensitiveCompare(name) == .orderedSame, let currentQueueIndex {
-            startIndex = min(currentQueueIndex, max(saved.stations.count - 1, 0))
-        } else {
-            startIndex = 0
-        }
+        let startIndex = lastKnownIndex(categoryID: nil, queueName: saved.name, count: saved.stations.count)
         play(queue: saved.stations, name: saved.name, startAt: startIndex, autoAdvanceOnFailure: true)
     }
 
@@ -359,6 +390,7 @@ final class AudioPlayerService: ObservableObject {
         savedSearchQueues.removeAll { normalizedName($0.name) == key }
         if removingActiveQueue { activeQueueName = nil }
         searchNavigation.removeValue(forKey: key)
+        lastPlayedIndices.removeValue(forKey: "search:\(key)")
         stationNavigation = stationNavigation.filter { !$0.key.hasPrefix("search:\(key)|") }
         navigationRevision += 1
         persistState(shouldResume: isPlaying || isConnecting)
@@ -380,6 +412,7 @@ final class AudioPlayerService: ObservableObject {
             let nextIndex = removedIndex % activeQueue.count
             currentQueueIndex = nextIndex
             currentStation = activeQueue[nextIndex]
+            recordLastPlayedIndex(index: nextIndex)
             startQueueItem(at: nextIndex)
         } else if let currentIndex = currentQueueIndex {
             if removedIndex < currentIndex {
@@ -387,6 +420,7 @@ final class AudioPlayerService: ObservableObject {
             } else if removedIndex == currentIndex {
                 currentQueueIndex = min(currentIndex, activeQueue.count - 1)
             }
+            if let idx = currentQueueIndex { recordLastPlayedIndex(index: idx) }
         }
         updateNowPlayingInfo()
         updateRemoteCommandAvailability()
@@ -419,6 +453,7 @@ final class AudioPlayerService: ObservableObject {
                 let nextIndex = min(removedIndex, activeQueue.count - 1)
                 failedQueueIndices.removeAll()
                 currentQueueIndex = nextIndex
+                recordLastPlayedIndex(index: nextIndex)
                 navigationRevision += 1
                 startQueueItem(at: nextIndex)
                 persistState(shouldResume: true)
@@ -426,6 +461,7 @@ final class AudioPlayerService: ObservableObject {
             }
             if let currentQueueIndex, removedIndex < currentQueueIndex {
                 self.currentQueueIndex = currentQueueIndex - 1
+                recordLastPlayedIndex(index: self.currentQueueIndex!)
             }
             updateNowPlayingInfo()
             updateRemoteCommandAvailability()
@@ -484,7 +520,9 @@ final class AudioPlayerService: ObservableObject {
         cancelAudition()
         player?.pause()
         cancelStartupWatchdog()
+        cancelStallRecovery()
         playbackState = .paused
+        RideLogger.shared.log("PLAYER_PAUSE: station='\(self.currentStation?.name ?? "none")'")
         updateNowPlayingInfo()
         persistState(shouldResume: false)
     }
@@ -498,7 +536,7 @@ final class AudioPlayerService: ObservableObject {
         playFeedbackSound()
         errorMessage = nil
         playbackState = .connecting
-        RideLogger.shared.log("PLAYER_RESUME station='\(station.name)'")
+        RideLogger.shared.log("PLAYER_RESUME: station='\(station.name)'")
         player.play()
         updateNowPlayingInfo()
         persistState(shouldResume: true)
@@ -512,7 +550,7 @@ final class AudioPlayerService: ObservableObject {
         failedStationID = nil
         errorMessage = nil
         playbackState = .stopped
-        RideLogger.shared.log("PLAYER_STOP station='\(currentStation?.name ?? "none")'")
+        RideLogger.shared.log("PLAYER_STOP: station='\(self.currentStation?.name ?? "none")' clearQueue=\(clearQueue)")
         updateNowPlayingInfo()
         if clearQueue {
             currentStation = nil
@@ -521,7 +559,7 @@ final class AudioPlayerService: ObservableObject {
             activeQueueName = nil
             activeLibraryCategoryID = nil
             failedQueueIndices.removeAll()
-            autoAdvanceOnFailure = false
+            autoAdvanceOnFailure = true
             updateRemoteCommandAvailability()
             clearNowPlayingInfo()
         } else {
@@ -531,6 +569,7 @@ final class AudioPlayerService: ObservableObject {
     }
 
     func togglePlayback() {
+        RideLogger.shared.log("TOGGLE_PLAYBACK: called (isPlaying=\(self.isPlaying), isConnecting=\(self.isConnecting))")
         if isPlaying || isConnecting { stop() } else { restartCurrentQueueItem() }
     }
 
@@ -568,13 +607,14 @@ final class AudioPlayerService: ObservableObject {
         let station = activeQueue[index]
         currentQueueIndex = index
         currentStation = station
+        recordLastPlayedIndex(index: index)
         updateNowPlayingInfo()
         failedStationID = nil
         errorMessage = nil
         playbackState = .resolving
         persistState(shouldResume: true)
 
-        RideLogger.shared.log("PLAY_REQUEST station='\(station.name)' category='\(activeQueueName ?? "none")' index=\(index)")
+        RideLogger.shared.log("PLAY_REQUEST: station='\(station.name)' category='\(self.activeQueueName ?? "none")' index=\(index)")
 
         resolutionTask = Task { [weak self] in
             guard let self else { return }
@@ -582,37 +622,38 @@ final class AudioPlayerService: ObservableObject {
             guard !Task.isCancelled, generation == self.playbackGeneration else { return }
 
             guard result.success, let resolvedURL = result.resolvedURL, let url = URL(string: resolvedURL) else {
-                RideLogger.shared.log("STATION_RESOLVE_FAILED station='\(station.name)' error='\(result.errorMessage ?? "unknown")'")
+                RideLogger.shared.log("STATION_RESOLVE_FAILED: station='\(station.name)' error='\(result.errorMessage ?? "unknown")'")
                 self.handlePlaybackFailure(station: station, message: result.errorMessage ?? "No playable stream was found.")
                 return
             }
-            RideLogger.shared.log("STATION_RESOLVED station='\(station.name)' url='\(resolvedURL)'")
+            RideLogger.shared.log("STATION_RESOLVED: station='\(station.name)' url='\(resolvedURL)'")
             self.beginPlayback(station: station, url: url, generation: generation)
         }
     }
 
- private func beginPlayback(station: Station, url: URL, generation: Int) {
-         guard generation == playbackGeneration else { return }
+    private func beginPlayback(station: Station, url: URL, generation: Int) {
+        guard generation == playbackGeneration else { return }
 
-         try? AVAudioSession.sharedInstance().setActive(true)
+        try? AVAudioSession.sharedInstance().setActive(true)
 
-         playbackState = .connecting
-         nowPlayingTitle = nil
-         nowPlayingArtist = nil
-         currentResolvedURL = url
-         let item = AVPlayerItem(url: url)
-         attachMetadataObserver(to: item)
-         let newPlayer = AVPlayer(playerItem: item)
-         newPlayer.allowsExternalPlayback = false
-         newPlayer.automaticallyWaitsToMinimizeStalling = true
-         newPlayer.isMuted = false
-         newPlayer.volume = 1.0
-         player = newPlayer
-         observePlayerItem(item: item, station: station, generation: generation)
-         observePlaybackState(player: newPlayer, station: station, generation: generation)
-         newPlayer.play()
-         startStartupWatchdog(station: station, generation: generation)
-     }
+        playbackState = .connecting
+        nowPlayingTitle = nil
+        nowPlayingArtist = nil
+        currentResolvedURL = url
+        let item = AVPlayerItem(url: url)
+        attachMetadataObserver(to: item)
+        let newPlayer = AVPlayer(playerItem: item)
+        newPlayer.allowsExternalPlayback = false
+        newPlayer.automaticallyWaitsToMinimizeStalling = true
+        newPlayer.isMuted = false
+        newPlayer.volume = 1.0
+        player = newPlayer
+        observePlayerItem(item: item, station: station, generation: generation)
+        observePlaybackState(player: newPlayer, station: station, generation: generation)
+        observeStallNotifications(item: item, station: station, generation: generation)
+        newPlayer.play()
+        startStartupWatchdog(station: station, generation: generation)
+    }
 
     private func observePlayerItem(item: AVPlayerItem, station: Station, generation: Int) {
         itemStatusObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] observedItem, _ in
@@ -628,6 +669,60 @@ final class AudioPlayerService: ObservableObject {
                 }
             }
         }
+
+        bufferEmptyObservation = item.observe(\.isPlaybackBufferEmpty, options: [.new]) { [weak self] observedItem, _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.playbackGeneration else { return }
+                if observedItem.isPlaybackBufferEmpty {
+                    RideLogger.shared.log("BUFFER_EMPTY: station='\(station.name)'")
+                    self.scheduleStallRecovery(station: station, generation: generation)
+                }
+            }
+        }
+
+        likelyToKeepUpObservation = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { [weak self] observedItem, _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.playbackGeneration else { return }
+                if observedItem.isPlaybackLikelyToKeepUp {
+                    RideLogger.shared.log("BUFFER_LIKELY_TO_KEEP_UP: station='\(station.name)'")
+                    self.cancelStallRecovery()
+                }
+            }
+        }
+    }
+
+    private func observeStallNotifications(item: AVPlayerItem, station: Station, generation: Int) {
+        if let existing = playbackStalledObserver {
+            NotificationCenter.default.removeObserver(existing)
+        }
+        playbackStalledObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemPlaybackStalled,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.playbackGeneration else { return }
+                RideLogger.shared.log("AVPlayerItemPlaybackStalled notification for '\(station.name)'")
+                self.scheduleStallRecovery(station: station, generation: generation)
+            }
+        }
+    }
+
+    private func scheduleStallRecovery(station: Station, generation: Int) {
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled, generation == self.playbackGeneration else { return }
+            if self.isPlaying || self.playbackState == .connecting {
+                RideLogger.shared.log("STALL_WATCHDOG_TRIGGERED: station='\(station.name)'")
+                self.handlePlaybackFailure(station: station, message: "Stream stalled.")
+            }
+        }
+    }
+
+    private func cancelStallRecovery() {
+        stallRecoveryTask?.cancel()
+        stallRecoveryTask = nil
     }
 
     private func observePlaybackState(player: AVPlayer, station: Station, generation: Int) {
@@ -637,14 +732,19 @@ final class AudioPlayerService: ObservableObject {
                 switch observedPlayer.timeControlStatus {
                 case .playing:
                     self.cancelStartupWatchdog()
+                    self.cancelStallRecovery()
                     self.startProgressCheckTask(generation: generation, station: station)
                     self.playbackState = .playing
                     self.errorMessage = nil
-                    RideLogger.shared.log("STATION_PLAYING station='\(station.name)'")
+                    RideLogger.shared.log("STATION_PLAYING: station='\(station.name)'")
                     self.updateNowPlayingInfo()
                     self.persistState(shouldResume: true)
                 case .waitingToPlayAtSpecifiedRate:
-                    self.playbackState = .connecting
+                    if self.playbackState == .playing {
+                        self.scheduleStallRecovery(station: station, generation: generation)
+                    } else {
+                        self.playbackState = .connecting
+                    }
                     self.updateNowPlayingInfo()
                 case .paused:
                     if self.playbackState == .playing {
@@ -663,39 +763,37 @@ final class AudioPlayerService: ObservableObject {
         startupTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: startupTimeoutNanoseconds)
             guard !Task.isCancelled, generation == self.playbackGeneration, self.playbackState != .playing else { return }
+            RideLogger.shared.log("STARTUP_WATCHDOG_TIMEOUT: station='\(station.name)'")
             self.handlePlaybackFailure(station: station, message: "Timeout waiting for \(station.name).")
         }
     }
 
     private func handlePlaybackFailure(station: Station, message: String) {
         cancelStartupWatchdog()
+        cancelStallRecovery()
         player?.pause()
         player = nil
         invalidateObservations()
 
-        if isNetworkAvailable && autoAdvanceOnFailure {
-            errorMessage = "Station unavailable. Finding next..."
-            RideLogger.shared.log("STATION_FAILURE_AUTO_ADVANCE station='\(station.name)' error='\(message)'")
-            if let index = currentQueueIndex { failedQueueIndices.insert(index) }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                if let nextIndex = self?.nextUnfailedQueueIndex() {
-                    self?.startQueueItem(at: nextIndex)
-                }
+        if let index = currentQueueIndex {
+            failedQueueIndices.insert(index)
+        }
+
+        RideLogger.shared.log("STATION_FAILURE_AUTO_ADVANCE: station='\(station.name)' error='\(message)'")
+
+        if let nextIndex = nextUnfailedQueueIndex() {
+            errorMessage = "Connecting next station…"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.startQueueItem(at: nextIndex)
             }
             return
         }
 
-        if let index = currentQueueIndex { failedQueueIndices.insert(index) }
-        if autoAdvanceOnFailure, let nextIndex = nextUnfailedQueueIndex() {
-            RideLogger.shared.log("STATION_FAILURE_JUMP station='\(station.name)'")
-            startQueueItem(at: nextIndex)
-            return
-        }
         playbackState = .failed
         updateNowPlayingInfo()
         failedStationID = station.id
         errorMessage = isNetworkAvailable ? message : "Network lost. Waiting..."
-        RideLogger.shared.log("STATION_FAILURE station='\(station.name)' error='\(message)' network=\(isNetworkAvailable)")
+        RideLogger.shared.log("STATION_FAILURE_HALT: category='\(self.activeQueueName ?? "none")'")
         onPlaybackFailed?(station)
     }
 
@@ -704,7 +802,7 @@ final class AudioPlayerService: ObservableObject {
             DispatchQueue.main.async {
                 let isAvailable = (path.status == .satisfied)
                 if isAvailable != self?.isNetworkAvailable {
-                    RideLogger.shared.log("NETWORK_CHANGE available=\(isAvailable)")
+                    RideLogger.shared.log("NETWORK_CHANGE: available=\(isAvailable)")
                 }
                 self?.isNetworkAvailable = isAvailable
 
@@ -800,7 +898,7 @@ final class AudioPlayerService: ObservableObject {
         }
     }
 
-private func promoteAuditionToActivePlayback(station: Station, index: Int, url: URL?) {
+    private func promoteAuditionToActivePlayback(station: Station, index: Int, url: URL?) {
         guard let newPlayer = self.auditionPlayer else { return }
         self.player?.pause()
         self.stopCurrentAttempt(killPlayer: true)
@@ -815,6 +913,7 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
         if let item = newPlayer.currentItem {
             attachMetadataObserver(to: item)
             observePlayerItem(item: item, station: station, generation: playbackGeneration)
+            observeStallNotifications(item: item, station: station, generation: playbackGeneration)
         }
         observePlaybackState(player: newPlayer, station: station, generation: playbackGeneration)
         activeQueue = auditionQueue
@@ -822,6 +921,7 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
         activeLibraryCategoryID = auditionLibraryCategoryID
         currentQueueIndex = index
         currentStation = station
+        recordLastPlayedIndex(index: index)
         failedQueueIndices.removeAll()
         playbackState = .playing
         errorMessage = nil
@@ -955,8 +1055,8 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
                 lastObservedPosition = currentPosition
 
                 if positionStallCount >= 3 {
-                    RideLogger.shared.log("AUDIO_STALL detected for \(station.name)")
-                    self.handlePlaybackFailure(station: station, message: "Stream stalled. Trying next...")
+                    RideLogger.shared.log("AUDIO_STALL: detected for '\(station.name)'")
+                    self.handlePlaybackFailure(station: station, message: "Stream stalled.")
                     break
                 }
             }
@@ -967,6 +1067,7 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
         resolutionTask?.cancel()
         resolutionTask = nil
         cancelStartupWatchdog()
+        cancelStallRecovery()
         progressCheckTask?.cancel()
         progressCheckTask = nil
         invalidateObservations()
@@ -988,6 +1089,14 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
         timeControlObservation = nil
         itemStatusObservation?.invalidate()
         itemStatusObservation = nil
+        bufferEmptyObservation?.invalidate()
+        bufferEmptyObservation = nil
+        likelyToKeepUpObservation?.invalidate()
+        likelyToKeepUpObservation = nil
+        if let observer = playbackStalledObserver {
+            NotificationCenter.default.removeObserver(observer)
+            playbackStalledObserver = nil
+        }
     }
 
     private func normalizedName(_ name: String) -> String {
@@ -1030,24 +1139,33 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
             )
             try session.setActive(true)
         } catch {
-            print("Failed to configure AVAudioSession: \(error)")
+            RideLogger.shared.log("Failed to configure AVAudioSession: \(error.localizedDescription)")
         }
     }
 
     private func observeAudioRouteChanges() {
         audioRouteChangeObserver = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+            forName: AVAudioSession.routeChangeNotification,
+            object: nil,
+            queue: .main
         ) { [weak self] notification in
-            guard let self, let userInfo = notification.userInfo,
+            guard let self,
+                  let userInfo = notification.userInfo,
                   let reasonValue = userInfo[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else { return }
+
             Task { @MainActor in
                 switch reason {
-                case .newDeviceAvailable, .routeConfigurationChange, .oldDeviceUnavailable:
-                    if self.isPlaying || self.playbackState == .paused {
-                        self.resume()
-                    }
+                case .oldDeviceUnavailable:
+                    RideLogger.shared.log("AUDIO_ROUTE_CHANGE: Earbuds disconnected. Executing full stop.")
+                    self.stop(clearQueue: false)
+
+                case .newDeviceAvailable:
+                    RideLogger.shared.log("AUDIO_ROUTE_CHANGE: New device connected.")
+                    try? AVAudioSession.sharedInstance().setActive(true)
+
                 default:
+                    RideLogger.shared.log("AUDIO_ROUTE_CHANGE: Reason rawValue=\(reasonValue)")
                     break
                 }
             }
@@ -1074,15 +1192,15 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
                 case .ended:
                     RideLogger.shared.log("AUDIO_INTERRUPTION: Ended")
                     guard self.wasPlayingBeforeInterruption else { return }
+                    self.wasPlayingBeforeInterruption = false
 
                     let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
                     let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
 
-                    if options.contains(.shouldResume) || self.wasPlayingBeforeInterruption {
+                    if options.contains(.shouldResume) {
                         try? AVAudioSession.sharedInstance().setActive(true)
                         self.resume()
                     }
-                    self.wasPlayingBeforeInterruption = false
 
                 @unknown default:
                     break
@@ -1093,14 +1211,28 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
 
     private func configureRemoteCommands() {
         let commandCenter = MPRemoteCommandCenter.shared()
-        commandCenter.playCommand.addTarget { [weak self] _ in Task { @MainActor in self?.resume() }; return .success }
-        commandCenter.pauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.pause() }; return .success }
-        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in Task { @MainActor in self?.togglePlayback() }; return .success }
+        commandCenter.playCommand.addTarget { [weak self] _ in
+            RideLogger.shared.log("REMOTE_COMMAND: playCommand received")
+            Task { @MainActor in self?.resume() }
+            return .success
+        }
+        commandCenter.pauseCommand.addTarget { [weak self] _ in
+            RideLogger.shared.log("REMOTE_COMMAND: pauseCommand received")
+            Task { @MainActor in self?.pause() }
+            return .success
+        }
+        commandCenter.togglePlayPauseCommand.addTarget { [weak self] _ in
+            RideLogger.shared.log("REMOTE_COMMAND: togglePlayPauseCommand received")
+            Task { @MainActor in self?.togglePlayback() }
+            return .success
+        }
         commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            RideLogger.shared.log("REMOTE_COMMAND: nextTrackCommand received")
             Task { @MainActor in if let onNext = self?.onNextTrackCommand { onNext() } else { self?.next() } }
             return .success
         }
         commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            RideLogger.shared.log("REMOTE_COMMAND: previousTrackCommand received")
             Task { @MainActor in if let onPrevious = self?.onPreviousTrackCommand { onPrevious() } else { self?.previous() } }
             return .success
         }
@@ -1128,7 +1260,8 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
         let state = PersistedPlaybackState(
             savedSearchQueues: savedSearchQueues, activeQueue: activeQueue, activeQueueName: activeQueueName,
             currentQueueIndex: currentQueueIndex, shouldResume: shouldResume,
-            searchNavigation: searchNavigation, categoryNavigation: categoryNavigation, stationNavigation: stationNavigation
+            searchNavigation: searchNavigation, categoryNavigation: categoryNavigation, stationNavigation: stationNavigation,
+            lastPlayedIndices: lastPlayedIndices
         )
         if let data = try? JSONEncoder().encode(state) { UserDefaults.standard.set(data, forKey: persistenceKey) }
     }
@@ -1146,6 +1279,7 @@ private func promoteAuditionToActivePlayback(station: Station, index: Int, url: 
         searchNavigation = state.searchNavigation ?? [:]
         categoryNavigation = state.categoryNavigation ?? [:]
         stationNavigation = state.stationNavigation ?? [:]
+        lastPlayedIndices = state.lastPlayedIndices ?? [:]
 
         if let index = currentQueueIndex, activeQueue.indices.contains(index) {
             currentStation = activeQueue[index]

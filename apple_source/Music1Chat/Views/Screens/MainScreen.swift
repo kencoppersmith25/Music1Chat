@@ -1,7 +1,7 @@
 // Music1Chat V9.8 TESTFLIGHT PREP — 2026-08-08
 // Keeps the working AdMob TEST banner and separates the approved header artwork
 // so the no-hands symbol and radio have a little more breathing room.
-// Updated: Overlay dimensions and silent search error logging.
+// Updated: Overlay dimensions, silent search error logging, category resume memory.
 import SwiftUI
 import AVKit
 import GoogleMobileAds
@@ -833,13 +833,12 @@ struct MainScreen: View {
         }
     }
 
- private func scheduleNavigationPrefetch() {
-         Task { @MainActor in
-             // Reduced to 40ms so the next station resolves almost instantly in the background
-             try? await Task.sleep(nanoseconds: 40_000_000)
-             prefetchLikelyNavigationTargets()
-         }
-     }
+    private func scheduleNavigationPrefetch() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            prefetchLikelyNavigationTargets()
+        }
+    }
 
     private func prefetchLikelyNavigationTargets() {
         player.prefetchNextStation()
@@ -850,19 +849,29 @@ struct MainScreen: View {
         case .library(let category):
             let stations = library.stations(in: category)
             guard !stations.isEmpty else { return }
+            let startIndex = player.lastKnownIndex(
+                categoryID: category.id,
+                queueName: category.name,
+                count: stations.count
+            )
             player.prefetch(
                 queue: stations,
                 name: category.name,
-                startAt: 0,
+                startAt: startIndex,
                 step: 1
             )
 
         case .search(let saved):
             guard !saved.stations.isEmpty else { return }
+            let startIndex = player.lastKnownIndex(
+                categoryID: nil,
+                queueName: saved.name,
+                count: saved.stations.count
+            )
             player.prefetch(
                 queue: saved.stations,
                 name: saved.name,
-                startAt: 0,
+                startAt: startIndex,
                 step: 1
             )
         }
@@ -945,11 +954,17 @@ struct MainScreen: View {
                 return
             }
 
+            let startIndex = player.lastKnownIndex(
+                categoryID: category.id,
+                queueName: category.name,
+                count: stations.count
+            )
+
             player.audition(
                 queue: stations,
                 name: category.name,
                 libraryCategoryID: category.id,
-                startAt: direction > 0 ? 0 : stations.count - 1,
+                startAt: startIndex,
                 step: direction,
                 saveAsSearch: false,
                 statusMessage: status,
@@ -961,10 +976,16 @@ struct MainScreen: View {
                 return
             }
 
+            let startIndex = player.lastKnownIndex(
+                categoryID: nil,
+                queueName: saved.name,
+                count: saved.stations.count
+            )
+
             player.audition(
                 queue: saved.stations,
                 name: saved.name,
-                startAt: direction > 0 ? 0 : saved.stations.count - 1,
+                startAt: startIndex,
                 step: direction,
                 saveAsSearch: false,
                 statusMessage: status,
@@ -1083,18 +1104,29 @@ struct MainScreen: View {
     private func playCategoryTarget(_ target: CategoryTarget) {
         switch target {
         case .library(let category):
+            let stations = library.stations(in: category)
+            let startIndex = player.lastKnownIndex(
+                categoryID: category.id,
+                queueName: category.name,
+                count: stations.count
+            )
             player.play(
-                queue: library.stations(in: category),
+                queue: stations,
                 name: category.name,
                 libraryCategoryID: category.id,
-                startAt: 0,
+                startAt: startIndex,
                 autoAdvanceOnFailure: true
             )
         case .search(let saved):
+            let startIndex = player.lastKnownIndex(
+                categoryID: nil,
+                queueName: saved.name,
+                count: saved.stations.count
+            )
             player.play(
                 queue: saved.stations,
                 name: saved.name,
-                startAt: 0,
+                startAt: startIndex,
                 autoAdvanceOnFailure: true
             )
         }

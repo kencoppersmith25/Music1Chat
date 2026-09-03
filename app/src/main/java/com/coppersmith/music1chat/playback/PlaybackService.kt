@@ -2,18 +2,21 @@ package com.coppersmith.music1chat.playback
 
 // Music1Chat coordinated release
 // File: PlaybackService.kt
-// Release: 2026-08-06 v06
-// Coordinated with RideLogger diagnostics and Assistant transport controls.
+// Coordinated with RideLogger diagnostics and auto-advance stall recovery.
 
 import android.content.Intent
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import androidx.annotation.OptIn
+import androidx.media3.cast.CastPlayer
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Metadata
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -21,12 +24,13 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.extractor.metadata.icy.IcyInfo
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionResult
-import com.coppersmith.music1chat.persistence.AppPreferences
+import com.coppersmith.music1chat.cast.CastManager
 import com.coppersmith.music1chat.diagnostics.RideLogger
+import com.coppersmith.music1chat.persistence.AppPreferences
+import com.google.android.gms.cast.framework.CastContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,14 +38,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.media3.common.Metadata
-import androidx.media3.extractor.metadata.icy.IcyInfo
-import androidx.media3.cast.CastPlayer
-import com.coppersmith.music1chat.cast.CastManager
-import com.google.android.gms.cast.framework.CastContext
-import android.os.Looper
-import androidx.media3.common.MimeTypes
-
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
@@ -79,13 +75,6 @@ class PlaybackService : MediaSessionService() {
         cancelBufferingWatchdog()
     }
 
-    /**
-     * Advertises standard next/previous transport commands to system media
-     * controllers (including Google Assistant/Gemini) and maps them to the
-     * same command bus already used by Bluetooth controls.
-     *
-     * Play, pause and stop continue to be handled normally by ExoPlayer.
-     */
     private inner class AssistantCommandPlayer(
         player: Player
     ) : ForwardingPlayer(player) {
@@ -168,7 +157,6 @@ class PlaybackService : MediaSessionService() {
                 session: MediaSession,
                 controller: MediaSession.ControllerInfo
             ): MediaSession.ConnectionResult {
-                // Explicitly allow all commands and advertise our capabilities
                 val availableSessionCommands =
                     MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                         .build()
@@ -178,7 +166,7 @@ class PlaybackService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                     .build()
-                
+
                 return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
                     .setAvailableSessionCommands(availableSessionCommands)
                     .setAvailablePlayerCommands(playerCommands)
@@ -255,7 +243,7 @@ class PlaybackService : MediaSessionService() {
 
             RideLogger.log("PLAYER_STATE state=$stateName station='${currentStationName()}' isRemote=${currentPlayer === castPlayer}")
 
-            if (playbackState == Player.STATE_BUFFERING && playbackRequested && !bufferingReconnectAttempted) {
+            if (playbackState == Player.STATE_BUFFERING && playbackRequested) {
                 scheduleBufferingWatchdog()
             } else if (playbackState != Player.STATE_BUFFERING) {
                 cancelBufferingWatchdog()
@@ -266,8 +254,6 @@ class PlaybackService : MediaSessionService() {
             beginPlaybackAttempt()
             this@PlaybackService.updateRemoteCommandAvailability()
 
-            // HANDOFF FIX: If we navigate while trying to cast, we must update the "restore list"
-            // so if the TV fails, we return to the NEW station, not the old one.
             if (handlingCastSwitch || currentPlayer === castPlayer) {
                 lastAttemptedMediaItems = copyMediaItems(currentPlayer)
             }
@@ -316,18 +302,17 @@ class PlaybackService : MediaSessionService() {
                 if (existingMetadata.title?.toString() == title && existingMetadata.artist?.toString() == artist) continue
 
                 val updatedMetadata = existingMetadata.buildUpon()
-                        .setTitle(title)
-                        .setArtist(artist)
-                        .setSubtitle(existingMetadata.station?.toString() ?: existingMetadata.title?.toString())
-                        .setStation(existingMetadata.station ?: existingMetadata.title)
-                        .setArtworkUri(existingMetadata.artworkUri)
-                        .build()
+                    .setTitle(title)
+                    .setArtist(artist)
+                    .setSubtitle(existingMetadata.station?.toString() ?: existingMetadata.title?.toString())
+                    .setStation(existingMetadata.station ?: existingMetadata.title)
+                    .setArtworkUri(existingMetadata.artworkUri)
+                    .build()
 
                 val updatedItem = currentItem.buildUpon()
-                        .setMediaMetadata(updatedMetadata)
-                        .build()
-                
-                // Force an update to the current player (TV or Phone)
+                    .setMediaMetadata(updatedMetadata)
+                    .build()
+
                 currentPlayer.replaceMediaItem(currentPlayer.currentMediaItemIndex, updatedItem)
             }
         }
@@ -339,10 +324,12 @@ class PlaybackService : MediaSessionService() {
                 returnToLocalPlayer()
                 return
             }
-            if (handlingCastSwitch) return // Ignore local errors during handoff
-            
-            if (isTemporaryNetworkFailure(error) && playbackRequested) {
-                scheduleNetworkRetry()
+            if (handlingCastSwitch) return
+
+            // Auto-advance immediately on error instead of stalling or endlessly retrying
+            if (playbackRequested) {
+                RideLogger.log("AUTO_ADVANCE_ON_ERROR station='${currentStationName()}'")
+                MediaButtonCommandBus.send(MediaButtonCommand.NEXT_STATION)
             }
         }
     }
@@ -388,9 +375,7 @@ class PlaybackService : MediaSessionService() {
                 }
             }
             .build()
-            
-        // Help Google Assistant understand we are a RADIO app.
-        // This makes phrases like "Next Station" work much better.
+
         val metadata = MediaMetadata.Builder()
             .setTitle("No Hands Radio")
             .setArtist("Live Stream")
@@ -433,11 +418,10 @@ class PlaybackService : MediaSessionService() {
         val shouldPlay = exoPlayer.playWhenReady || exoPlayer.isPlaying
 
         try {
-            // "Polite" Handoff: Dim volume instead of stopping immediately
             if (exoPlayer.isPlaying) {
-                exoPlayer.volume = 0.25f 
+                exoPlayer.volume = 0.25f
             }
-            
+
             mediaSession?.player = remotePlayer
 
             remotePlayer.stop()
@@ -460,7 +444,7 @@ class PlaybackService : MediaSessionService() {
     private fun scheduleRecovery() {
         recoveryJob?.cancel()
         recoveryJob = playbackScope.launch {
-            delay(12000) // Increased from 5s to 12s for better TV reliability
+            delay(12000)
             if (currentPlayer === castPlayer && !castPlayer!!.isPlaying && playbackRequested) {
                 RideLogger.log("CAST_RECOVERY_TRIGGERED reason='silence timeout'")
                 returnToLocalPlayer()
@@ -510,13 +494,12 @@ class PlaybackService : MediaSessionService() {
         return buildList {
             for (i in 0 until sourcePlayer.mediaItemCount) {
                 val item = sourcePlayer.getMediaItemAt(i)
-                
-                // REVENUE/TECH FIX: TVs are picky. Force a valid MimeType if unknown.
+
                 val uri = item.localConfiguration?.uri.toString()
                 val mimeType = if (item.localConfiguration?.mimeType == null || item.localConfiguration?.mimeType == MimeTypes.APPLICATION_MPD) {
-                    if (uri.contains(".mp3", ignoreCase = true)) MimeTypes.AUDIO_MPEG 
+                    if (uri.contains(".mp3", ignoreCase = true)) MimeTypes.AUDIO_MPEG
                     else if (uri.contains(".m3u", ignoreCase = true)) MimeTypes.APPLICATION_M3U8
-                    else MimeTypes.AUDIO_MPEG // Aggressive fallback for TV compatibility
+                    else MimeTypes.AUDIO_MPEG
                 } else {
                     item.localConfiguration?.mimeType
                 }
@@ -552,30 +535,13 @@ class PlaybackService : MediaSessionService() {
         stopSelf()
     }
 
-    private fun scheduleNetworkRetry() {
-        if (!playbackRequested) return
-        retryCount++
-        val delayMs = if (retryCount == 1) 2000L else if (retryCount == 2) 4000L else 30000L
-        cancelRetry()
-        retryJob = playbackScope.launch {
-            delay(delayMs)
-            if (playbackRequested) {
-                currentPlayer.prepare()
-                currentPlayer.play()
-            }
-        }
-    }
-
     private fun scheduleBufferingWatchdog() {
         cancelBufferingWatchdog()
         bufferingWatchdogJob = playbackScope.launch {
-            delay(15000)
+            delay(4500)
             if (playbackRequested && currentPlayer.playbackState == Player.STATE_BUFFERING) {
-                bufferingReconnectAttempted = true
-                RideLogger.log("AUTO_RECONNECT station='${currentStationName()}'")
-                currentPlayer.stop()
-                currentPlayer.prepare()
-                currentPlayer.play()
+                RideLogger.log("BUFFERING_STALL_AUTO_ADVANCE station='${currentStationName()}'")
+                MediaButtonCommandBus.send(MediaButtonCommand.NEXT_STATION)
             }
         }
     }
@@ -590,17 +556,9 @@ class PlaybackService : MediaSessionService() {
         retryJob = null
     }
 
-    private fun isTemporaryNetworkFailure(error: PlaybackException): Boolean {
-        return error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
-                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
-    }
-
     private fun updateRemoteCommandAvailability() {
         val player = mediaSession?.player ?: return
         val currentCommands = player.availableCommands
-        
-        // This effectively notifies the session that commands might have changed
-        // though in Media3 the Player itself owns availability.
         RideLogger.log("REFRESH_COMMANDS: next=${currentCommands.contains(Player.COMMAND_SEEK_TO_NEXT)}")
     }
 
