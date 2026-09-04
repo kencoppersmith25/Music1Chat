@@ -1,9 +1,10 @@
 import Foundation
+import AVFoundation
 import GoogleMobileAds
 import UIKit
 
 /**
- * Central Interstitial Ad management for iOS.
+ * Central Interstitial Ad management for iOS with Safety Watchdog Timer.
  * Verified compliant with modern Swift Concurrency and AdMob SDK naming.
  */
 @MainActor
@@ -16,6 +17,7 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
 
     private var interstitial: InterstitialAd?
     private var currentAdUnitID: String { AdConfig.interstitialID }
+    private var safetyTimer: Timer?
 
     override init() {
         super.init()
@@ -28,14 +30,12 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
         guard AdConfig.showInterstitials else { return }
         let request = Request()
 
-        // Using the "with:" label which resolved your earlier error
         InterstitialAd.load(with: currentAdUnitID, request: request) { ad, error in
             if let error = error {
                 print("Failed to load interstitial ad: \(error.localizedDescription)")
                 return
             }
 
-            // Hop back to the Main Actor to safely update the property and delegate
             Task { @MainActor in
                 self.interstitial = ad
                 self.interstitial?.fullScreenContentDelegate = self
@@ -53,6 +53,9 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
             return
         }
 
+        // Start the safety watchdog timer (45 seconds) in case the ad gets stuck
+        startSafetyTimer(from: rootViewController)
+
         // Using "from:" label requested by modern SDK
         ad.present(from: rootViewController)
     }
@@ -60,13 +63,47 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
     // MARK: - FullScreenContentDelegate
 
     func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
-        lastAdShownAt = Date()
-        interstitial = nil
-        loadAd() // Pre-load the next one
+         cancelSafetyTimer()
+         lastAdShownAt = Date()
+         interstitial = nil
+
+         // Explicitly reactivate audio session to fix post-ad silence glitch
+         try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+
+         loadAd() // Pre-load the next one
+     }
+
+     func ad(_ ad: FullScreenPresentingAd, didFailToPresentFullScreenContentWithError error: Error) {
+         cancelSafetyTimer()
+         interstitial = nil
+
+         // Ensure audio session recovers even if ad presentation fails
+         try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+
+         loadAd()
+     }
+
+    // MARK: - Watchdog Timer Safeguard
+
+    private func startSafetyTimer(from rootViewController: UIViewController) {
+        cancelSafetyTimer()
+        safetyTimer = Timer.scheduledTimer(withTimeInterval: 45.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                print("⚠️ Safety timeout triggered: Interstitial ad appears stuck. Force-dismissing.")
+                self?.cancelSafetyTimer()
+                self?.interstitial = nil
+
+                // Force-dismiss the presented modal overlay
+                rootViewController.dismiss(animated: true) {
+                    try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+                    self?.loadAd()
+                }
+            }
+        }
     }
 
-    func ad(_ ad: FullScreenPresentingAd, didFailToPresentFullScreenContentWithError error: Error) {
-        interstitial = nil
-        loadAd()
+    private func cancelSafetyTimer() {
+        safetyTimer?.invalidate()
+        safetyTimer = nil
     }
 }

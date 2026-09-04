@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import SwiftUI
+import MessageUI
 
 @MainActor
 final class Music1ChatSettings: ObservableObject {
@@ -471,23 +472,69 @@ struct SettingsPanel: View {
         }
     }
 
-    private func shareLog() {
-        guard let url = RideLogger.shared.getLogURL() else { return }
+private func shareLog() {
+    guard let url = RideLogger.shared.getLogURL(),
+          let logData = try? Data(contentsOf: url) else {
+        print("Log file URL or data not found.")
+        return
+    }
 
-        let activityVC = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    if MFMailComposeViewController.canSendMail() {
+        // Present the native mail composer wrapper
+        let mailView = MailComposeView(
+            recipient: "kencoppersmith@yahoo.com",
+            subject: "Ride Log",
+            attachmentData: logData,
+            mimeType: "text/plain",
+            fileName: "RideLog.txt"
+        )
 
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootVC = windowScene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-
-            if let popover = activityVC.popoverPresentationController {
-                popover.sourceView = rootVC.view
-                popover.sourceRect = CGRect(x: rootVC.view.bounds.midX, y: rootVC.view.bounds.midY, width: 0, height: 0)
-                popover.permittedArrowDirections = []
+            var topController = rootVC
+            while let presented = topController.presentedViewController {
+                topController = presented
             }
 
-            rootVC.present(activityVC, animated: true)
+            let hostingController = UIHostingController(rootView: mailView)
+            hostingController.modalPresentationStyle = .pageSheet
+            topController.present(hostingController, animated: true)
+        }
+    } else {
+        print("Mail services are not available on this device.")
+    }
+}
+
+// MARK: - Mail Compose Wrapper
+struct MailComposeView: UIViewControllerRepresentable {
+    let recipient: String
+    let subject: String
+    let attachmentData: Data
+    let mimeType: String
+    let fileName: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIViewController(context: Context) -> MFMailComposeViewController {
+        let vc = MFMailComposeViewController()
+        vc.mailComposeDelegate = context.coordinator
+        vc.setToRecipients([recipient])
+        vc.setSubject(subject)
+        vc.addAttachmentData(attachmentData, mimeType: mimeType, fileName: fileName)
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: MFMailComposeViewController, context: Context) {}
+
+    class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+        func mailComposeController(_ controller: MFMailComposeViewController, didFinishWith result: MFMailComposeResult, error: Error?) {
+            controller.dismiss(animated: true)
         }
     }
+}
+
 
     private func radioRow(
         behavior: Music1ChatSettings.PreviousTrackBehavior,
