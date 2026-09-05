@@ -877,13 +877,10 @@ struct MainScreen: View {
         }
     }
 
-    private func previousCategory() {
-        moveCategory(by: -1)
+    private func previousCategory() {AudioPlayerService.throttleCommand{moveCategory(by: -1)}
     }
 
-    private func nextCategory() {
-        moveCategory(by: 1)
-    }
+    private func nextCategory() {AudioPlayerService.throttleCommand{moveCategory(by: 1)}}
 
     private func moveCategory(by offset: Int) {
         let direction = offset < 0 ? -1 : 1

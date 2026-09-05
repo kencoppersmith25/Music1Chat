@@ -1,10 +1,7 @@
 package com.coppersmith.music1chat.playback
 
-// Music1Chat coordinated release
-// File: PlaybackService.kt
-// Coordinated with RideLogger diagnostics and auto-advance stall recovery.
-
 import android.content.Intent
+import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
@@ -73,6 +70,66 @@ class PlaybackService : MediaSessionService() {
         bufferingReconnectAttempted = false
         cancelRetry()
         cancelBufferingWatchdog()
+    }
+
+    private class ButtonDebouncer(
+        private val multiTapWindowMs: Long = 800L,
+        private val cooldownMs: Long = 1000L,
+        private val onActionTriggered: (MediaButtonCommand, Int) -> Unit
+    ) {
+        private var lastExecutionTime = 0L
+        private var clickCount = 0
+        private var lastClickTime = 0L
+        private var targetCommand: MediaButtonCommand? = null
+        private val handler = Handler(Looper.getMainLooper())
+        private var pendingRunnable: Runnable? = null
+
+        fun handlePress(command: MediaButtonCommand) {
+            val currentTime = System.currentTimeMillis()
+
+            if (currentTime - lastExecutionTime < cooldownMs) {
+                return
+            }
+
+            pendingRunnable?.let { handler.removeCallbacks(it) }
+
+            if (currentTime - lastClickTime > multiTapWindowMs || targetCommand != command) {
+                clickCount = 1
+                targetCommand = command
+            } else {
+                clickCount++
+            }
+            lastClickTime = currentTime
+
+            val currentCommand = command
+            val expectedClicks = when (currentCommand) {
+                MediaButtonCommand.NEXT_STATION -> 2
+                MediaButtonCommand.NEXT_CATEGORY -> 3
+                else -> 1
+            }
+
+            if (clickCount >= expectedClicks) {
+                execute(currentCommand, clickCount)
+            } else {
+                pendingRunnable = Runnable {
+                    if (clickCount > 0) {
+                        execute(currentCommand, clickCount)
+                    }
+                }
+                handler.postDelayed(pendingRunnable!!, multiTapWindowMs)
+            }
+        }
+
+        private fun execute(command: MediaButtonCommand, count: Int) {
+            lastExecutionTime = System.currentTimeMillis()
+            clickCount = 0
+            targetCommand = null
+            onActionTriggered(command, count)
+        }
+    }
+
+    private val buttonDebouncer = ButtonDebouncer { command, _ ->
+        MediaButtonCommandBus.send(command)
     }
 
     private inner class AssistantCommandPlayer(
@@ -181,21 +238,24 @@ class PlaybackService : MediaSessionService() {
                 val keyEvent = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT) ?: return false
                 if (keyEvent.action != KeyEvent.ACTION_DOWN || keyEvent.repeatCount != 0) return true
 
-                val command = when (keyEvent.keyCode) {
+                when (keyEvent.keyCode) {
                     KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
                     KeyEvent.KEYCODE_MEDIA_PLAY,
                     KeyEvent.KEYCODE_MEDIA_PAUSE,
-                    KeyEvent.KEYCODE_MEDIA_STOP -> MediaButtonCommand.TOGGLE_PLAYBACK
+                    KeyEvent.KEYCODE_MEDIA_STOP -> {
+                        buttonDebouncer.handlePress(MediaButtonCommand.TOGGLE_PLAYBACK)
+                    }
                     KeyEvent.KEYCODE_MEDIA_NEXT,
-                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> MediaButtonCommand.NEXT_STATION
+                    KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                        buttonDebouncer.handlePress(MediaButtonCommand.NEXT_STATION)
+                    }
                     KeyEvent.KEYCODE_MEDIA_PREVIOUS,
                     KeyEvent.KEYCODE_MEDIA_REWIND,
-                    KeyEvent.KEYCODE_BACK -> MediaButtonCommand.NEXT_CATEGORY
-                    else -> null
+                    KeyEvent.KEYCODE_BACK -> {
+                        buttonDebouncer.handlePress(MediaButtonCommand.NEXT_CATEGORY)
+                    }
+                    else -> return false
                 }
-
-                if (command == null) return false
-                MediaButtonCommandBus.send(command)
                 return true
             }
         }
@@ -326,7 +386,6 @@ class PlaybackService : MediaSessionService() {
             }
             if (handlingCastSwitch) return
 
-            // Auto-advance immediately on error instead of stalling or endlessly retrying
             if (playbackRequested) {
                 RideLogger.log("AUTO_ADVANCE_ON_ERROR station='${currentStationName()}'")
                 MediaButtonCommandBus.send(MediaButtonCommand.NEXT_STATION)
@@ -530,7 +589,7 @@ class PlaybackService : MediaSessionService() {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()
         }
-        if (::castManager.isInitialized) castManager.stopCasting()
+        if (::castManager.isInitialized) castManager.unregister()
         castPlayer?.stop()
         stopSelf()
     }
