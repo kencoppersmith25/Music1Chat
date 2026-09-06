@@ -66,75 +66,86 @@ final class RadioBrowserService: Sendable {
         return []
     }
 
-    private func executeMultiSearch(baseUrl: String, text: String, finalLimit: Int) async throws -> [RadioBrowserStationDTO] {
-        let normalized = text.lowercased()
+ private func executeMultiSearch(baseUrl: String, text: String, finalLimit: Int) async throws -> [RadioBrowserStationDTO] {
+         let normalized = text.lowercased()
 
-        async let nameSearch = fetch(baseUrl: baseUrl, field: "name", text: text, limit: 100)
-        async let tagSearch = fetch(baseUrl: baseUrl, field: "tag", text: text, limit: 100)
+         async let nameSearch = fetch(baseUrl: baseUrl, field: "name", text: text, limit: 100)
+         async let tagSearch = fetch(baseUrl: baseUrl, field: "tag", text: text, limit: 100)
 
-        var collected = await (nameSearch + tagSearch)
+         var collected = await (nameSearch + tagSearch)
 
-        // Synergy Hawaii search matching Android
-        if normalized.contains("hawai") {
-            async let s1 = fetch(baseUrl: baseUrl, field: "state", text: "Hawaii", limit: 100)
-            async let s2 = fetch(baseUrl: baseUrl, field: "tag", text: "hawaiian", limit: 100)
-            async let s3 = fetch(baseUrl: baseUrl, field: "name", text: "Honolulu", limit: 60)
-            async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Maui", limit: 50)
-            async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Kauai", limit: 40)
-            async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Kona", limit: 40)
-            async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Aloha", limit: 40)
-            async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Hawaii Music Live", limit: 30)
+         // Synergy Hawaii search matching Android
+         if normalized.contains("hawai") {
+             async let s1 = fetch(baseUrl: baseUrl, field: "state", text: "Hawaii", limit: 100)
+             async let s2 = fetch(baseUrl: baseUrl, field: "tag", text: "hawaiian", limit: 100)
+             async let s3 = fetch(baseUrl: baseUrl, field: "name", text: "Honolulu", limit: 60)
+             async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Maui", limit: 50)
+             async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Kauai", limit: 40)
+             async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Kona", limit: 40)
+             async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Aloha", limit: 40)
+             async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Hawaii Music Live", limit: 30)
 
-            let hawaiiResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8)
-            collected.append(contentsOf: hawaiiResults)
-        }
+             let hawaiiResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8)
+             collected.append(contentsOf: hawaiiResults)
+         }
 
-        let validStations = collected.filter { station in
-            let cleanedName = station.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let playbackUrl = (station.url_resolved?.isEmpty == false ? station.url_resolved! : station.url).trimmingCharacters(in: .whitespacesAndNewlines)
-            return !cleanedName.isEmpty && !playbackUrl.isEmpty
-        }
+         let validStations = collected.filter { station in
+             let cleanedName = station.name.trimmingCharacters(in: .whitespacesAndNewlines)
+             let playbackUrl = (station.url_resolved?.isEmpty == false ? station.url_resolved! : station.url).trimmingCharacters(in: .whitespacesAndNewlines)
+             return !cleanedName.isEmpty && !playbackUrl.isEmpty
+         }
 
-        // Deduplicate primarily by Station UUID and Exact Stream URL
-        var seenUuids = Set<String>()
-        var seenUrls = Set<String>()
+         // Deduplicate primarily by Station UUID and Exact Stream URL[cite: 1]
+         var seenUuids = Set<String>()
+         var seenUrls = Set<String>()
 
-        let uniqueStations = validStations.filter { station in
-            let uuid = station.stationuuid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            let hasValidUuid = !uuid.isEmpty && uuid != "00000000-0000-0000-0000-000000000000"
+         let uniqueStations = validStations.filter { station in
+             let uuid = station.stationuuid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+             let hasValidUuid = !uuid.isEmpty && uuid != "00000000-0000-0000-0000-000000000000"
 
-            let rawUrl = (station.url_resolved?.isEmpty == false ? station.url_resolved! : station.url).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+             let rawUrl = (station.url_resolved?.isEmpty == false ? station.url_resolved! : station.url).trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-            let isUuidDuplicate = hasValidUuid && seenUuids.contains(uuid)
-            let isUrlDuplicate = seenUrls.contains(rawUrl)
+             let isUuidDuplicate = hasValidUuid && seenUuids.contains(uuid)
+             let isUrlDuplicate = seenUrls.contains(rawUrl)
 
-            if isUuidDuplicate || isUrlDuplicate {
-                return false
-            } else {
-                if hasValidUuid { seenUuids.insert(uuid) }
-                seenUrls.insert(rawUrl)
-                return true
-            }
-        }
+             if isUuidDuplicate || isUrlDuplicate {
+                 return false
+             } else {
+                 if hasValidUuid { seenUuids.insert(uuid) }
+                 seenUrls.insert(rawUrl)
+                 return true
+             }
+         }
 
-        // Rank by relevance matching Android LiveStationSearchEngine
-        let normalizedQuery = normalize(text)
-        let queryWords = tokenize(text)
+         // Rank by relevance matching Android LiveStationSearchEngine[cite: 1]
+         let normalizedQuery = normalize(text)
+         let queryWords = tokenize(text)
 
-        let ranked = uniqueStations.compactMap { station -> (station: RadioBrowserStationDTO, score: Int)? in
-            let score = calculateRelevanceScore(station: station, normalizedQuery: normalizedQuery, queryWords: queryWords)
-            return score > 0 ? (station, score) : nil
-        }
-        .sorted {
-            if $0.score != $1.score { return $0.score > $1.score }
-            if ($0.station.votes ?? 0) != ($1.station.votes ?? 0) { return ($0.station.votes ?? 0) > ($1.station.votes ?? 0) }
-            return ($0.station.clickcount ?? 0) > ($1.station.clickcount ?? 0)
-        }
-        .map(\.station)
+         let ranked = uniqueStations.compactMap { station -> (station: RadioBrowserStationDTO, score: Int)? in
+             let score = calculateRelevanceScore(station: station, normalizedQuery: normalizedQuery, queryWords: queryWords)
+             return score > 0 ? (station, score) : nil
+         }
+         .sorted {
+             if $0.score != $1.score { return $0.score > $1.score }
+             if ($0.station.votes ?? 0) != ($1.station.votes ?? 0) { return ($0.station.votes ?? 0) > ($1.station.votes ?? 0) }
+             return ($0.station.clickcount ?? 0) > ($1.station.clickcount ?? 0)
+         }
+         .map(\.station)
 
-        let limited = Array(ranked.prefix(finalLimit))
-        return interleaveStations(limited)
-    }
+         // Drop any station with a name that has already appeared globally in the results
+         var seenNames = Set<String>()
+         let distinctNameStations = ranked.filter { station in
+             let cleanedName = station.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+             if seenNames.contains(cleanedName) {
+                 return false
+             }
+             seenNames.insert(cleanedName)
+             return true
+         }
+
+         let limited = Array(distinctNameStations.prefix(finalLimit))
+         return interleaveStations(limited)
+     }
 
     // Android Stride-7 Interleaver
     private func interleaveStations(_ stations: [RadioBrowserStationDTO]) -> [RadioBrowserStationDTO] {
