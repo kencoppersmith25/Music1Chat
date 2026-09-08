@@ -215,7 +215,9 @@ class Search(
                     station.name.trim().lowercase()
                 }
                 .take(limit)
-        val interleavedStations = interleaveStations(mergedStations)
+        // Bypassed for iOS parity, but kept here if you want to re-enable it later:
+        // val interleavedStations = interleaveStations(mergedStations)
+        val interleavedStations = mergedStations
 
         return CoordinatedSearchResult(
             query = searchQuery,

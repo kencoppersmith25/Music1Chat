@@ -648,5 +648,7 @@ class PlaybackService : MediaSessionService() {
         private const val USER_AGENT = "Music1Chat/1.0"
         private const val HTTP_CONNECT_TIMEOUT_MS = 4_000
         private const val HTTP_READ_TIMEOUT_MS = 4_000
+        var isNavigationInputActive = false // Add the navigation lock flag here
+
     }
 }

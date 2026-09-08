@@ -234,10 +234,10 @@ class RadioPlayer(
                 activeRequestHasPlayed = true
                 cancelStallWatchdog()
                 startAudioProgressWatchdog(request)
-                
+
                 // RESET GRUDGES: If we play successfully, clear the failure counts.
-                rapidFailureCount = 0 
-                
+                rapidFailureCount = 0
+
                 if (request.generation == playbackNavGeneration) {
                     val elapsed = System.currentTimeMillis() - playbackStartTime
                     RideLogger.log("STATION_PLAYING station='${request.station.name}' elapsed=$elapsed")
@@ -286,26 +286,34 @@ class RadioPlayer(
 
             isPlaying = false
             cancelStallWatchdog()
-            
+
             val failedStation = request.station
-            
+
             // LIE DETECTOR: Check if the phone actually has internet
-            val connectivityManager = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val connectivityManager =
+                applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val network = connectivityManager.activeNetwork
             val capabilities = connectivityManager.getNetworkCapabilities(network)
-            val actuallyHasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            val actuallyHasInternet =
+                capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
 
-            if (isTemporaryNetworkFailure(error) && !actuallyHasInternet) {
-                // TRULY NO INTERNET - Show waiting message
+            if (isTemporaryNetworkFailure(error) || !actuallyHasInternet) {
+                // TRULY NO INTERNET - Halt completely and release playback intent to prevent looping[cite: 4, 5]
                 failedStation.failedThisSession = false
-                cancelStartupWatchdog() 
-                
-                errorMessage = "Network lost. Waiting for connection to play ${failedStation.name}…"
-                RideLogger.log("NETWORK_WAIT station='${failedStation.name}' error='${error.errorCodeName}'")
+                cancelStartupWatchdog()
+                cancelStallWatchdog()
+                cancelAudioProgressWatchdog()
+
+                playbackRequested = false
+                connecting = false
+                isPlaying = false
+
+                errorMessage = "Network offline. Playback paused."
+                RideLogger.log("NETWORK_OFFLINE_HALT station='${failedStation.name}' error='${error.errorCodeName}'")
                 return
             }
 
-            // THE STATION IS LYING OR BROKEN - Advance immediately
+            // THE STATION IS LYING OR BROKEN - Advance immediately[cite: 4, 5]
             errorMessage = "Station unavailable. Trying next station."
             RideLogger.log("STATION_FAILURE_JUMP station='${failedStation.name}' error='${error.errorCodeName}' internet=$actuallyHasInternet")
 
@@ -334,6 +342,28 @@ class RadioPlayer(
     }
 
     fun play(station: Station, source: PlaybackSource) {
+        // LIE DETECTOR: Block playback attempts immediately if there's no internet
+        val connectivityManager = applicationContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = connectivityManager.activeNetwork
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+        val actuallyHasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+        if (!actuallyHasInternet) {
+            cancelStartupWatchdog()
+            cancelStallWatchdog()
+            cancelAudioProgressWatchdog()
+
+            activeRequest = null
+            pendingRequest = null
+            playbackRequested = false
+            connecting = false
+            isPlaying = false
+            errorMessage = "No internet connection. Playback cancelled."
+            RideLogger.log("PLAY_BLOCKED_OFFLINE station='${station.name}'")
+            PlaybackService.isNavigationInputActive = false // Clear lock on offline exit
+            return
+        }
+
         val request = createPlaybackRequest(station = station, source = source)
         cancelStartupWatchdog()
         cancelStallWatchdog()
@@ -353,10 +383,12 @@ class RadioPlayer(
         val connectedController = controller
         if (connectedController == null) {
             pendingRequest = request
+            PlaybackService.isNavigationInputActive = false // Clear lock if controller isn't ready yet
             return
         }
 
         startPlayback(request = request, mediaController = connectedController)
+        PlaybackService.isNavigationInputActive = false // Clear lock on successful dispatch
     }
 
     private fun createPlaybackRequest(station: Station, source: PlaybackSource): PlaybackRequest {

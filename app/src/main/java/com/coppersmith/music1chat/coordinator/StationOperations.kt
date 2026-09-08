@@ -12,6 +12,8 @@ import com.coppersmith.music1chat.persistence.AppPreferences
 import com.coppersmith.music1chat.repository.MusicRepository
 import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionState
+import com.coppersmith.music1chat.navigation.NavigationEngine
+
 
 class StationOperations(
     private val preferences: AppPreferences,
@@ -43,6 +45,9 @@ class StationOperations(
         currentState: PlaybackSessionState,
         wasPlaying: Boolean
     ): PlaybackSessionState? {
+
+    //    if (!NavigationEngine.canExecute()) return currentState
+
         memberships.moveStation(
             categoryId = categoryId,
             stationId = station.id,

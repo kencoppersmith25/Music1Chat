@@ -6,8 +6,11 @@ import Foundation
  */
 struct AdConfig {
     // --- MASTER CONTROLS ---
-    //setting this one to false now...
-    static let useTestAds = false // SET TO FALSE FOR APP STORE RELEASE
+    static var useTestAds: Bool {
+        return plistValue?.uppercased() == "YES"
+        let plistValue = Bundle.main.object(forInfoDictionaryKey: "Use_Test_Ads") as? String
+    }
+
     static let showInterstitials = true
 
     // Timer control (set to 20 mins for production, 5 mins for testing)

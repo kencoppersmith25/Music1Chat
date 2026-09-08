@@ -11,12 +11,16 @@ import UIKit
 class AdInterstitialService: NSObject, FullScreenContentDelegate {
     static let shared = AdInterstitialService()
 
-    // Using the centralized config for timer and IDs
+    // Callbacks to coordinate audio playback state with the player
+    var onPausePlayback: (() -> Void)?
+    var onResumePlayback: (() -> Void)?
+
+    // Using the centralized config for timer and dynamic test/live ID switching
     private var minimumInterval: TimeInterval { AdConfig.minimumInterstitialInterval }
     private var lastAdShownAt: Date?
 
     private var interstitial: InterstitialAd?
-    private var currentAdUnitID: String { AdConfig.interstitialID }
+
     private var safetyTimer: Timer?
 
     override init() {
@@ -30,7 +34,7 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
         guard AdConfig.showInterstitials else { return }
         let request = Request()
 
-        InterstitialAd.load(with: currentAdUnitID, request: request) { ad, error in
+        InterstitialAd.load(with: AdConfig.interstitialID, request: request) { ad, error in
             if let error = error {
                 print("Failed to load interstitial ad: \(error.localizedDescription)")
                 return
@@ -62,6 +66,10 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
 
     // MARK: - FullScreenContentDelegate
 
+    func adWillPresentFullScreenContent(_ ad: FullScreenPresentingAd) {
+        onPausePlayback?()
+    }
+
     func adDidDismissFullScreenContent(_ ad: FullScreenPresentingAd) {
          cancelSafetyTimer()
          lastAdShownAt = Date()
@@ -70,6 +78,7 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
          // Explicitly reactivate audio session to fix post-ad silence glitch
          try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
 
+         onResumePlayback?()
          loadAd() // Pre-load the next one
      }
 
@@ -80,6 +89,7 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
          // Ensure audio session recovers even if ad presentation fails
          try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
 
+         onResumePlayback?()
          loadAd()
      }
 
@@ -96,6 +106,7 @@ class AdInterstitialService: NSObject, FullScreenContentDelegate {
                 // Force-dismiss the presented modal overlay
                 rootViewController.dismiss(animated: true) {
                     try? AVAudioSession.sharedInstance().setActive(true, options: .notifyOthersOnDeactivation)
+                    self?.onResumePlayback?()
                     self?.loadAd()
                 }
             }

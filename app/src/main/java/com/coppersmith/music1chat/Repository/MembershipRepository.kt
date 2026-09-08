@@ -2,6 +2,8 @@ package com.coppersmith.music1chat.repository
 
 import com.coppersmith.music1chat.models.Membership
 import com.coppersmith.music1chat.models.Station
+import com.coppersmith.music1chat.navigation.NavigationEngine
+
 
 class MembershipRepository(
     private val stationRepository: StationRepository
@@ -115,6 +117,8 @@ class MembershipRepository(
         stationId: Long,
         newPosition: Int
     ) {
+//        if (!NavigationEngine.canExecute()) return
+
         val ordered =
             getMembershipsForCategory(categoryId).toMutableList()
 

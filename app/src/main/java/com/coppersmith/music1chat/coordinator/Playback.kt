@@ -7,6 +7,8 @@ import com.coppersmith.music1chat.RadioPlayer
 import com.coppersmith.music1chat.diagnostics.RideLogger
 import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionState
+import com.coppersmith.music1chat.navigation.NavigationEngine
+
 
 data class StationMoveResult(
     val state: PlaybackSessionState,
@@ -59,6 +61,9 @@ class Playback(
             source = source
         )
 
+        // Clear the navigation click-lock since playback is now requested/starting
+        NavigationEngine.resetClickLock()
+
         RideLogger.log(
             "PLAY_REQUEST_SENT " +
                     "station='${station.name}' " +
@@ -69,6 +74,7 @@ class Playback(
     }
 
     fun moveStation(direction: Int): StationMoveResult {
+
         val beforeState = sessionController.getState()
 
         RideLogger.log(
@@ -112,6 +118,8 @@ class Playback(
         RideLogger.log(
             "PLAYBACK_STOP station='${sessionController.getState().currentStation?.name.orEmpty()}'"
         )
+
+        NavigationEngine.resetClickLock() // Reset lock on explicit stop
 
         radioPlayer.stop()
         return sessionController.stop()

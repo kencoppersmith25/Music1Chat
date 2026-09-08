@@ -68,6 +68,7 @@ import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.ui.components.CategoryPicker
+import com.coppersmith.music1chat.navigation.NavigationEngine
 import com.coppersmith.music1chat.ads.AdManager
 import com.coppersmith.music1chat.ads.AdReason
 import kotlinx.coroutines.delay
@@ -740,6 +741,8 @@ fun MainScreen() {
     fun moveStation(
         direction: Int
     ) {
+ //       if (!canExecute()) return
+
         radioPlayer.playFeedbackSound()
         navigationStatusMessage = if (direction > 0) "Finding next station…" else "Finding previous station…"
         val result = playback.moveStation(direction)

@@ -6,6 +6,7 @@ import com.coppersmith.music1chat.repository.CategoryRepository
 import com.coppersmith.music1chat.repository.MembershipRepository
 import com.coppersmith.music1chat.repository.StationRepository
 
+
 class NavigationEngine(
     private val categoryRepository: CategoryRepository,
     private val stationRepository: StationRepository,
@@ -13,6 +14,13 @@ class NavigationEngine(
     initialState: NavigationState = NavigationState()
 ) {
     private var state = initialState
+    private var lastCommandTimestamp = 0L
+    private val commandThrottleMs = 6000L
+
+    private data class Selection(
+        val category: Category,
+        val station: Station
+    )
 
     init {
         if (state.currentCategoryId == null || state.currentStationId == null) {
@@ -27,9 +35,24 @@ class NavigationEngine(
         }
     }
 
+    private enum class NavigationDirection {
+        FORWARD,
+        BACKWARD
+    }
+
     fun getState(): NavigationState = state
 
     fun execute(command: NavigationCommand): NavigationResult {
+
+        // Allow stop commands to bypass the click-lock so the user can always bail out
+        if (command == NavigationCommand.STOP) {
+            return stop()
+        }
+
+        if (!canExecute()) {
+            return NavigationResult(state = state)
+        }
+
         return when (command) {
             NavigationCommand.NEXT_STATION ->
                 moveStation(NavigationDirection.FORWARD)
@@ -95,6 +118,11 @@ class NavigationEngine(
     private fun moveStation(
         direction: NavigationDirection
     ): NavigationResult {
+
+        if (!canExecute()) {
+            return NavigationResult(state = state)
+        }
+
         val currentCategory = getCurrentCategory()
             ?: getPlayableCategories().firstOrNull()
             ?: return noEligibleCategoriesResult()
@@ -152,6 +180,11 @@ class NavigationEngine(
     private fun moveCategory(
         direction: NavigationDirection
     ): NavigationResult {
+
+        if (!canExecute()) {
+            return NavigationResult(state = state)
+        }
+
         val playableCategories = getPlayableCategories()
 
         if (playableCategories.isEmpty()) {
@@ -287,20 +320,34 @@ class NavigationEngine(
         } else {
             "No categories contain navigation-enabled stations."
         }
-
         return NavigationResult(
             state = state,
             statusMessage = message
         )
     }
 
-    private data class Selection(
-        val category: Category,
-        val station: Station
-    )
 
-    private enum class NavigationDirection {
-        FORWARD,
-        BACKWARD
+    companion object { // (within companion object or class state)
+        private var lastCommandTimestamp = 0L
+        private const val THROTTLE_MS = 1000L
+        private var clickLockActive = false
+
+    fun canExecute(): Boolean {
+        val now = System.currentTimeMillis()
+        if (now - lastCommandTimestamp < THROTTLE_MS) {
+            return false
+        }
+        if (clickLockActive) {
+            return false // Hard locked until actual music plays or resets!
+        }
+        lastCommandTimestamp = now
+        clickLockActive = true
+        return true
     }
+
+        fun resetClickLock() {
+            clickLockActive = false
+        }
+    }
+
 }

@@ -49,7 +49,7 @@ object AdManager {
 
     private fun loadInterstitial(application: Application) {
         if (!AdConfig.SHOW_INTERSTITIALS) return
-        
+
         val adRequest = AdRequest.Builder().build()
         InterstitialAd.load(application, AdConfig.ANDROID_INTERSTITIAL_ID, adRequest,
             object : InterstitialAdLoadCallback() {
@@ -72,6 +72,8 @@ object AdManager {
     fun maybeShowInterstitial(
         activity: Activity,
         reason: AdReason,
+        onPausePlayback: () -> Unit = {},
+        onResumePlayback: () -> Unit = {},
         onDismissed: () -> Unit = {}
     ): AdDecision {
         val decision = evaluateInterstitial(reason)
@@ -93,17 +95,22 @@ object AdManager {
             return AdDecision.ALREADY_SHOWING
         }
 
+        // Pause the radio stream right before the ad takes over the screen
+        onPausePlayback()
+
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
                 interstitialShowing.set(false)
                 mInterstitialAd = null
                 loadInterstitial(activity.application)
+                onResumePlayback() // Resume stream after ad is gone
                 onDismissed()
             }
 
             override fun onAdFailedToShowFullScreenContent(error: com.google.android.gms.ads.AdError) {
                 interstitialShowing.set(false)
                 mInterstitialAd = null
+                onResumePlayback() // Resume if ad fails to show
                 onDismissed()
             }
         }
@@ -120,7 +127,7 @@ object AdManager {
         if (!AdConfig.SHOW_INTERSTITIALS) {
             return AdDecision.REASON_DISABLED
         }
-        
+
         if (!initialized.get()) {
             return AdDecision.NOT_INITIALIZED
         }

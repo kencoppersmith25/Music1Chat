@@ -27,8 +27,9 @@ struct MainScreen: View {
     @State private var searchErrorMessage: String?
     @State private var categoryNavigationGeneration = 0
     @State private var isAppStarting = true
-    @FocusState private var searchFieldFocused: Bool
+    @State private var pendingDeleteCategory: Category?
 
+    @FocusState private var searchFieldFocused: Bool
     private let radioBrowserService = RadioBrowserService()
 
     private let defaultQuickSearches = [
@@ -98,31 +99,33 @@ struct MainScreen: View {
                     .frame(maxWidth: .infinity)
                     .background(Color.black)
             }
-            .onAppear {
-                lastAnnouncedCategoryName = player.activeQueueName
-                player.feedbackSoundsEnabled = settings.feedbackSoundsEnabled
+           .onAppear {
+               lastAnnouncedCategoryName = player.activeQueueName
+               player.feedbackSoundsEnabled = settings.feedbackSoundsEnabled
 
-                // Start immediately instead of waiting 2.5 seconds
-                isAppStarting = false
+               // Keep app starting flagged for 2 seconds to prevent launch announcements
+               DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                   isAppStarting = false
+               }
 
-                player.onNextTrackCommand = {
-                    nextStation()
-                }
+               player.onNextTrackCommand = {
+                   nextStation()
+               }
 
-                player.onPreviousTrackCommand = {
-                    handlePreviousTrackCommand()
-                }
+               player.onPreviousTrackCommand = {
+                   handlePreviousTrackCommand()
+               }
 
-                player.onAuditionFailed = { _ in }
+               player.onAuditionFailed = { _ in }
 
-                Music1ChatIntentBridge.shared.connectCategoryActions(
-                    next: { nextCategory() },
-                    previous: { previousCategory() }
-                )
+               Music1ChatIntentBridge.shared.connectCategoryActions(
+                   next: { nextCategory() },
+                   previous: { previousCategory() }
+               )
 
-                scheduleNavigationPrefetch()
-            }
-            .onDisappear {
+               scheduleNavigationPrefetch()
+           }
+           .onDisappear {
                 player.onNextTrackCommand = nil
                 player.onPreviousTrackCommand = nil
                 Music1ChatIntentBridge.shared.disconnectCategoryActions()
@@ -144,23 +147,23 @@ struct MainScreen: View {
                 player.feedbackSoundsEnabled = newValue
             }
             .alert(
-                "Delete Search: \(pendingDeleteSearchName ?? "")?",
+                "Delete Category: \(pendingDeleteCategory?.name ?? "")?",
                 isPresented: Binding(
-                    get: { pendingDeleteSearchName != nil },
-                    set: { if !$0 { pendingDeleteSearchName = nil } }
+                    get: { pendingDeleteCategory != nil },
+                    set: { if !$0 { pendingDeleteCategory = nil } }
                 )
             ) {
                 Button("Cancel", role: .cancel) {
-                    pendingDeleteSearchName = nil
+                    pendingDeleteCategory = nil
                 }
                 Button("Delete", role: .destructive) {
-                    if let name = pendingDeleteSearchName {
-                        deleteSearchCategory(named: name)
+                    if let category = pendingDeleteCategory {
+                        deleteLibraryCategory(category)
                     }
-                    pendingDeleteSearchName = nil
+                    pendingDeleteCategory = nil
                 }
             } message: {
-                Text("This removes the saved search category. The station currently playing will keep playing while No Hands Radio finds the next enabled category.")
+                Text("This removes the category and its saved stations. Playback will switch to the next enabled category.")
             }
             .alert(
                 "Search",
@@ -367,25 +370,27 @@ struct MainScreen: View {
                 }
                 .buttonStyle(.plain)
             } else if let activeCategory = activeLibraryCategory {
-                Button {
-                    stationListCategoryID = activeCategory.id
-                    stationListSearchName = nil
-                } label: {
-                    Image(systemName: "list.bullet")
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
-            }
+                        Button {
+                            stationListCategoryID = activeCategory.id
+                            stationListSearchName = nil
+                        } label: {
+                            Image(systemName: "list.bullet")
+                                .font(.system(size: 19, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.plain)
 
-            Button {
-                toggleCurrentCategoryNavigation()
-            } label: {
-                NavigationArrowIndicator(enabled: currentCategoryNavigationEnabled)
-                    .frame(width: 44, height: 34)
-            }
-            .buttonStyle(.plain)
+                        Button(role: .destructive) {
+                            pendingDeleteCategory = activeCategory
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.plain)
+                    }
         }
         .padding(16)
         .frame(maxWidth: .infinity)
@@ -424,16 +429,16 @@ struct MainScreen: View {
                             .lineLimit(1)
                     }
 
-                    HStack(spacing: 8) {
-                        if !player.isPlaying {
-                            Text(playbackStatusText)
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
+                   HStack(spacing: 8) {
+                       if !player.isPlaying, !playbackStatusText.isEmpty {
+                           Text(playbackStatusText)
+                               .font(.system(size: 11, weight: .medium))
+                               .foregroundStyle(.secondary)
+                       }
 
-                        VUMeter(isPlaying: player.isPlaying)
-                            .frame(width: 38, height: 11)
-                    }
+                       VUMeter(isPlaying: player.isPlaying)
+                           .frame(width: 38, height: 11)
+                   }
                 }
 
                 Spacer()
@@ -576,7 +581,7 @@ struct MainScreen: View {
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 20)
-            } else if player.isConnecting || (player.playbackState == .paused && player.isPlaying == false) {
+            } else if player.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
@@ -755,16 +760,14 @@ struct MainScreen: View {
 
     private var playbackStatusText: String {
         switch player.playbackState {
-        case .stopped:
-            return "Stopped"
+        case .stopped, .paused:
+            return ""
         case .resolving:
             return "Checking stream…"
         case .connecting:
             return "Connecting…"
         case .playing:
             return "Playing"
-        case .paused:
-            return "Paused"
         case .failed:
             return "Playback unavailable"
         }
@@ -819,19 +822,20 @@ struct MainScreen: View {
         }
     }
 
-    private func nextStation() {
-        if player.activeQueue.isEmpty {
-            guard !categoryStations.isEmpty else { return }
-            player.play(
-                queue: categoryStations,
-                name: selectedCategory?.name,
-                startAt: selectedStationIndex,
-                autoAdvanceOnFailure: true
-            )
-        } else {
-            player.auditionNextStation()
-        }
-    }
+     private func nextStation() {
+         RideLogger.shared.log("UI_TAP: Next station button")
+         if player.activeQueue.isEmpty {
+             guard !categoryStations.isEmpty else { return }
+             player.play(
+                 queue: categoryStations,
+                 name: selectedCategory?.name,
+                 startAt: selectedStationIndex,
+                 autoAdvanceOnFailure: true
+             )
+         } else {
+             player.auditionNextStation()
+         }
+     }
 
     private func scheduleNavigationPrefetch() {
         Task { @MainActor in
@@ -877,12 +881,31 @@ struct MainScreen: View {
         }
     }
 
-    private func previousCategory() {AudioPlayerService.throttleCommand{moveCategory(by: -1)}
-    }
+    private func previousCategory() {player.executeThrottledAction{moveCategory(by: -1)}}
 
-    private func nextCategory() {AudioPlayerService.throttleCommand{moveCategory(by: 1)}}
+     private func nextCategory() {
+         RideLogger.shared.log("UI_TAP: Next category triggered")
+         player.executeThrottledAction{ moveCategory(by: 1) }
+     }
 
     private func moveCategory(by offset: Int) {
+
+        // Play feedback sound immediately when user taps category navigation
+        player.playFeedbackSound(type: .categoryChange)
+
+        let now = Date()
+        guard now.timeIntervalSince(AudioPlayerService.lastNavigationTime) >= AudioPlayerService.navigationCooldown else { return }
+        AudioPlayerService.lastNavigationTime = now
+
+        guard !player.isNavigationInputActive else { return }
+        player.isNavigationInputActive = true
+        defer { player.isNavigationInputActive = false }
+
+        // Hard override: immediately kill any active watchdogs, hung network tasks, or ongoing auditions
+        player.cancelStartupWatchdog()
+        player.cancelStallRecovery()
+        player.cancelAudition()
+
         let direction = offset < 0 ? -1 : 1
         let targets = allCategoryTargets().filter { isEligibleCategoryTarget($0) }
         guard !targets.isEmpty else { return }
@@ -892,29 +915,30 @@ struct MainScreen: View {
         player.cancelQueueAudition()
 
         let currentIndex = targets.firstIndex { target in
-            switch target {
-            case .library(let category):
-                return actuallyPlayingLibraryCategory?.id == category.id
-            case .search(let saved):
-                return activeSavedSearch?.name.caseInsensitiveCompare(saved.name) == .orderedSame
-            }
+          switch target {
+          case .library(let category):
+              return actuallyPlayingLibraryCategory?.id == category.id
+          case .search(let saved):
+              return activeSavedSearch?.name.caseInsensitiveCompare(saved.name) == .orderedSame
+          }
         }
 
         let firstIndex: Int
         if let currentIndex {
-            firstIndex = ((currentIndex + direction) % targets.count + targets.count) % targets.count
+          firstIndex = ((currentIndex + direction) % targets.count + targets.count) % targets.count
         } else {
-            firstIndex = direction > 0 ? 0 : targets.count - 1
+          firstIndex = direction > 0 ? 0 : targets.count - 1
         }
 
         auditionCategoryTarget(
-            targets,
-            index: firstIndex,
-            direction: direction,
-            attemptsRemaining: targets.count,
-            generation: generation
+          targets,
+          index: firstIndex,
+          direction: direction,
+          attemptsRemaining: targets.count,
+          generation: generation
         )
     }
+
 
     private func auditionCategoryTarget(
         _ targets: [CategoryTarget],
