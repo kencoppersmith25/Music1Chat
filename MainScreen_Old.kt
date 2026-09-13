@@ -41,7 +41,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
-import android.app.Activity
 import com.coppersmith.music1chat.GenreData
 import com.coppersmith.music1chat.RadioPlayer
 import com.coppersmith.music1chat.coordinator.AnnouncementManager
@@ -68,9 +67,6 @@ import com.coppersmith.music1chat.session.PlaybackSessionController
 import com.coppersmith.music1chat.session.PlaybackSessionMode
 import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.ui.components.CategoryPicker
-import com.coppersmith.music1chat.navigation.NavigationEngine
-import com.coppersmith.music1chat.ads.AdManager
-import com.coppersmith.music1chat.ads.AdReason
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.coppersmith.music1chat.BuildConfig
@@ -81,9 +77,6 @@ import com.coppersmith.music1chat.models.Station
 fun MainScreen() {
 
     val context = LocalContext.current
-    val announcementManager = remember {
-        AnnouncementManager(context = context)
-    }
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -168,7 +161,7 @@ fun MainScreen() {
                 playbackRequested = shouldResumePlayback
             )
         }
-
+        
         PlaybackSessionController(initialState = initialState)
     }
 
@@ -228,18 +221,24 @@ fun MainScreen() {
         mutableStateOf(libraryStartup.shouldResumePlayback)
     }
 
+    val announcementManager = remember {
+        AnnouncementManager(context.applicationContext).apply {
+            onSpeechStatusChanged = { isSpeaking ->
+                if (isSpeaking) {
+                    radioPlayer.setVolume(0.05f) // Duck to 5% volume for clarity
+                } else {
+                    radioPlayer.setVolume(1.0f) // Restore to 100% volume
+                }
+            }
+        }
+    }
+
     var rideLogActive by remember {
         mutableStateOf(RideLogger.isActive)
     }
 
     var rideLogAvailable by remember {
         mutableStateOf(RideLogger.hasLog)
-    }
-
-    // Refresh log availability periodically or on specific events
-    LaunchedEffect(radioPlayer.isPlaying, radioPlayer.playbackRequested) {
-        rideLogActive = RideLogger.isActive
-        rideLogAvailable = RideLogger.hasLog
     }
 
     var stationStateVersion by remember {
@@ -307,6 +306,11 @@ fun MainScreen() {
         )
     }
 
+// Searches currently being prepared invisibly for category navigation.
+    val searchPrefetchesInProgress = remember {
+        mutableSetOf<String>()
+    }
+
     var savedSearchCategories by remember {
         mutableStateOf(initialSavedSearchCategories)
     }
@@ -345,7 +349,7 @@ fun MainScreen() {
     val recentSearchQueries = remember(savedSearchCategories) {
         val defaultQueries = listOf("Classical", "Hawaiian", "Jazz", "Rock", "News")
         val savedQueries = savedSearchCategories.reversed().map { it.query }
-
+        
         (savedQueries + defaultQueries)
             .distinctBy { it.lowercase() }
             .take(50)
@@ -378,28 +382,22 @@ fun MainScreen() {
             } ?: displayedStationCount
         }
 
-    val currentCategoryObject = if (sessionState.isSearch) {
-        Category(
-            id = -1L,
-            name = effectiveSearchQuery,
-            type = CategoryType.SEARCH
-        )
-    } else {
-        currentPermanentCategory
-    }
-
-    val effectiveCategoryDisplayName = currentCategoryObject?.getDisplayName(
-        stationCount = effectiveCategoryStationCount,
-        startupRestoreComplete = startupRestoreComplete
-    ) ?: if (sessionState.isSearch) {
-        if (effectiveSearchQuery.isBlank()) "Search" else "Search $effectiveSearchQuery"
-    } else {
-        if (effectiveCategoryStationCount == 0 && !startupRestoreComplete) {
-            sessionState.categoryName
+    val effectiveCategoryDisplayName =
+        if (sessionState.isSearch) {
+            if (effectiveSearchQuery.isBlank()) {
+                "Search"
+            } else if (effectiveCategoryStationCount == 0 && !startupRestoreComplete) {
+                "Search: $effectiveSearchQuery"
+            } else {
+                "Search: $effectiveSearchQuery ($effectiveCategoryStationCount)"
+            }
         } else {
-            "${sessionState.categoryName} ($effectiveCategoryStationCount)"
+            if (effectiveCategoryStationCount == 0 && !startupRestoreComplete) {
+                sessionState.categoryName
+            } else {
+                "${sessionState.categoryName} ($effectiveCategoryStationCount)"
+            }
         }
-    }
 
     val searchSuggestions: List<String> = remember(
         searchText,
@@ -511,40 +509,39 @@ fun MainScreen() {
                 }
     }
 
-    // this is a comment
 
-    fun publishSession(newState: PlaybackSessionState) {
+    fun publishSession(
+        newState: PlaybackSessionState
+    ) {
         val previousState = sessionStateRef.value
 
-        val rawName = newState.categoryName ?: ""
+        // If this is a permanent category (has an ID), ensure categoryName never contains a search prefix
+        val sanitizedState = if (!newState.isSearch || newState.categoryId != null) {
+            newState.copy(
+                categoryName = newState.categoryName.removePrefix("Search:").trim()
+            )
+        } else {
+            newState
+        }
 
-        val isReallySearch = newState.mode == PlaybackSessionMode.SEARCH || rawName.startsWith("search", ignoreCase = true)
-
-        // Unconditionally strip any accidental search prefixes from category names
-        val cleanedName = rawName
-            .removePrefix("search:")
-            .removePrefix("Search:")
-            .removePrefix("search ")
-            .removePrefix("Search ")
-            .trim()
-
-        val correctedState = newState.copy(
-            categoryName = cleanedName,
-            mode = if (isReallySearch) PlaybackSessionMode.SEARCH else PlaybackSessionMode.CATEGORY
-        )
-
-        sessionState = correctedState
-        sessionStateRef.value = correctedState
+        sessionState = sanitizedState
+        sessionStateRef.value = sanitizedState
 
         announcementManager.onSessionChanged(
             previousState = previousState,
-            newState = correctedState,
+            newState = sanitizedState,
             startupRestoreComplete = startupRestoreComplete
         )
 
-        if (correctedState.mode == PlaybackSessionMode.SEARCH && correctedState.hasEligibleStations) {
-            activeSearchQuery = correctedState.categoryName
-            searchSessionStates = searchSessionStates + (normalizedSearchKey(correctedState.categoryName) to correctedState)
+        if (newState.isSearch && newState.hasEligibleStations) {
+            activeSearchQuery = newState.categoryName
+            searchSessionStates =
+                searchSessionStates +
+                        (
+                                normalizedSearchKey(
+                                    newState.categoryName
+                                ) to newState
+                                )
         }
     }
 
@@ -636,7 +633,6 @@ fun MainScreen() {
     fun changeCategory(
         direction: Int
     ) {
-        radioPlayer.playFeedbackSound()
         val beforeState = sessionStateRef.value
 
         RideLogger.log(
@@ -748,9 +744,6 @@ fun MainScreen() {
     fun moveStation(
         direction: Int
     ) {
- //       if (!canExecute()) return
-
-        radioPlayer.playFeedbackSound()
         navigationStatusMessage = if (direction > 0) "Finding next station…" else "Finding previous station…"
         val result = playback.moveStation(direction)
 
@@ -780,7 +773,6 @@ fun MainScreen() {
     }
 
     fun startPlayback() {
-        radioPlayer.playFeedbackSound()
         val result = playback.start()
         publishSession(result.state)
 
@@ -905,7 +897,56 @@ fun MainScreen() {
         }
     }
 
-    // prefetchSearch removed for stability on S25
+    fun prefetchSearch(
+        query: String
+    ) {
+        val searchQuery = query.trim()
+
+        if (searchQuery.isBlank()) {
+            return
+        }
+
+        val normalizedKey = normalizedSearchKey(searchQuery)
+
+        if (
+            searchSessionStates[normalizedKey]?.hasStations == true ||
+            normalizedKey in searchPrefetchesInProgress
+        ) {
+            return
+        }
+
+        searchPrefetchesInProgress.add(normalizedKey)
+        RideLogger.log("SEARCH_PREFETCH_START query='$searchQuery'")
+
+        coroutineScope.launch {
+            try {
+                val prefetchedState =
+                    searchCoordinator.prefetchWorkflow(
+                        query = searchQuery,
+                        limit = appPreferences.getSearchResultLimit(),
+                        repositoryStations = repositoryStations,
+                        savedSearches = savedSearchCategories
+                    )
+
+                if (prefetchedState == null) {
+                    RideLogger.log("SEARCH_PREFETCH_EMPTY query='$searchQuery'")
+                    return@launch
+                }
+
+                searchSessionStates =
+                    searchSessionStates +
+                            (normalizedKey to prefetchedState)
+
+                RideLogger.log(
+                    "SEARCH_PREFETCH_READY " +
+                            "query='$searchQuery' " +
+                            "stations=${prefetchedState.stationCount}"
+                )
+            } finally {
+                searchPrefetchesInProgress.remove(normalizedKey)
+            }
+        }
+    }
 
     runSearchAction = { query,
                         startPlayback,
@@ -1007,9 +1048,7 @@ fun MainScreen() {
                         .getNavigationStationsForCategory(categoryId)
                         .isNotEmpty()
                 }
-            ).ifEmpty {
-                savedSearchCategories.map { "search:${it.query}" } + musicRepository.categories.getAll().map { "category:${it.id}" }
-            }
+            )
 
         val deletionPlan =
             CategoryOperations.plan(
@@ -1253,7 +1292,16 @@ fun MainScreen() {
             startupRestoreComplete = true
         }
 
-    // Step 2: Background pre-fetches removed for stability on S25
+        // Step 2: Background pre-fetches for other searches (Delayed)
+        delay(1500)
+        savedSearchCategories
+            .filter { it.navigationEnabled }
+            .forEach { saved ->
+                if (saved.query != initiallyCurrentSearch?.query) {
+                    prefetchSearch(saved.query)
+                    delay(500)
+                }
+            }
     }
 
     LaunchedEffect(Unit) {
@@ -1274,22 +1322,18 @@ fun MainScreen() {
                 }
 
                 MediaButtonCommand.NEXT_STATION -> {
-                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.STATION_CHANGE)
                     moveStation(direction = 1)
                 }
 
                 MediaButtonCommand.PREVIOUS_STATION -> {
-                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.STATION_CHANGE)
                     moveStation(direction = -1)
                 }
 
                 MediaButtonCommand.NEXT_CATEGORY -> {
-                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.CATEGORY_CHANGE)
                     changeCategory(direction = 1)
                 }
 
                 MediaButtonCommand.PREVIOUS_CATEGORY -> {
-                    radioPlayer.playFeedbackSound(RadioPlayer.FeedbackType.CATEGORY_CHANGE)
                     changeCategory(direction = -1)
                 }
             }
@@ -1360,30 +1404,17 @@ fun MainScreen() {
         }
     }
 
-    // VOICE ALERTS: Speak network or category issues with a "Muzzle" to prevent spam
-    val lastAlertTimes = remember { mutableMapOf<String, Long>() }
-    val ALERT_DEBOUNCE_MS = 300_000L // 5 minutes
-
+    // VOICE ALERTS: Speak network or category issues
     LaunchedEffect(radioPlayer.errorMessage) {
         radioPlayer.errorMessage?.let { message ->
-            val now = System.currentTimeMillis()
-
-            fun speakWithMuzzle(alertKey: String, text: String) {
-                val lastTime = lastAlertTimes[alertKey] ?: 0L
-                if (now - lastTime > ALERT_DEBOUNCE_MS) {
-                    announcementManager.speak(text)
-                    lastAlertTimes[alertKey] = now
-                }
-            }
-
             if (message.contains("Network lost", ignoreCase = true)) {
-                speakWithMuzzle("network", "Network connection lost. Waiting.")
+                announcementManager.speak("Network connection lost. Waiting.")
             } else if (message.contains("signal too weak", ignoreCase = true)) {
-                speakWithMuzzle("signal", "Poor signal. Pausing auto-advance.")
+                announcementManager.speak("Poor signal. Pausing auto-advance.")
             } else if (message.contains("Trying next station", ignoreCase = true)) {
-                speakWithMuzzle("station", "Station unavailable. Finding next.")
+                announcementManager.speak("Station unavailable. Finding next.")
             } else if (message.contains("Trying next category", ignoreCase = true)) {
-                speakWithMuzzle("category", "Category unavailable. Trying next category.")
+                announcementManager.speak("Category unavailable. Trying next category.")
                 // Give the voice a moment to finish before jumping categories
                 delay(1000)
                 changeCategory(direction = 1)
@@ -1667,12 +1698,8 @@ fun MainScreen() {
                 startupRestoreComplete = startupRestoreComplete,
                 libraryHasCategories = libraryHasCategories,
                 sessionHasStations = sessionState.hasStations,
-                visibleStatusMessage = when {
-                    radioPlayer.errorMessage != null -> radioPlayer.errorMessage
-                    radioPlayer.connecting -> "Connecting…"
-                    playbackRequested && !isPlaying && !isRestoringInitialPlayback -> "Buffering…"
-                    else -> navigationStatusMessage
-                },
+                visibleStatusMessage =
+                    radioPlayer.errorMessage ?: navigationStatusMessage,
                 onSettingsClick = {
                     showSettings = true
                 },
@@ -1803,9 +1830,10 @@ fun MainScreen() {
                         } else {
                             "Move to category"
                         }
-                    // UX FIX: Start with a completely empty search box. 
-                    // No more backspacing required!
-                    destinationCategorySearchText = ""
+                    destinationCategorySearchText =
+                        sessionState.categoryName
+                            .ifBlank { sourceStation.genre }
+                            .trim()
                 },
                 onStationCopyClick = {
                     val station = displayedStation
@@ -1832,25 +1860,10 @@ fun MainScreen() {
                     moveStation(direction = -1)
                 },
                 onPlayPauseClick = {
-                    if (radioPlayer.connecting) {
-                        // IGNORE: User is likely clicking because it hasn't started yet.
-                        // We don't want to stop the connection attempt they just requested.
-                        return@Content
-                    }
-
                     if (playbackRequested) {
                         stopPlayback()
                     } else if (sessionState.hasStations) {
                         startPlayback()
-
-                        // INTERSTITIAL AD TRIGGER
-                        val activity = context as? Activity
-                        if (activity != null) {
-                            AdManager.maybeShowInterstitial(
-                                activity = activity,
-                                reason = AdReason.FIRST_MANUAL_PLAY
-                            )
-                        }
                     } else {
                         navigationStatusMessage =
                             if (!libraryHasCategories) {
@@ -1877,7 +1890,6 @@ fun MainScreen() {
             CategoryPicker(
                 title = destinationCategoryPickerTitle,
                 searchText = destinationCategorySearchText,
-                proposedName = sessionState.categoryName.trim(),
                 categories = musicRepository.categories.getAll().filter { category ->
                     // BUG FIX: Hide the current category from the "Save/Move" list
                     // If the session is a SEARCH, we allow all categories.

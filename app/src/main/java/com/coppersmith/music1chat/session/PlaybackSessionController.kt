@@ -11,6 +11,7 @@ data class PlaybackSessionState(
     val mode: PlaybackSessionMode = PlaybackSessionMode.CATEGORY,
     val categoryId: Long? = null,
     val categoryName: String = "",
+    val forcedDisplayName: String? = null,
     val stations: List<Station> = emptyList(),
     val currentIndex: Int = 0,
     val playbackRequested: Boolean = false
@@ -34,13 +35,12 @@ data class PlaybackSessionState(
             }
 
     val categoryDisplayName: String
-        get() =
-            when (mode) {
-                PlaybackSessionMode.CATEGORY -> categoryName
-                PlaybackSessionMode.SEARCH ->
-                    if (categoryName.isBlank()) "Search"
-                    else "Search: $categoryName"
-            }
+        get() = forcedDisplayName ?: when (mode) {
+            PlaybackSessionMode.CATEGORY -> categoryName
+            PlaybackSessionMode.SEARCH ->
+                if (categoryName.isBlank()) "Search"
+                else "Search: $categoryName"
+        }
 
     val isSearch: Boolean
         get() = mode == PlaybackSessionMode.SEARCH
@@ -75,11 +75,13 @@ class PlaybackSessionController(
         preferredStationId: Long? = null,
         startPlayback: Boolean
     ): PlaybackSessionState {
+        val cleanName = categoryName.trim()
         state =
             PlaybackSessionState(
                 mode = PlaybackSessionMode.CATEGORY,
                 categoryId = categoryId,
-                categoryName = categoryName.trim(),
+                categoryName = cleanName,
+                forcedDisplayName = cleanName,
                 stations = stations.toList(),
                 currentIndex = findPreferredIndex(
                     stations,
@@ -103,6 +105,7 @@ class PlaybackSessionController(
                 mode = PlaybackSessionMode.SEARCH,
                 categoryId = null,
                 categoryName = query.trim(),
+                forcedDisplayName = null,
                 stations = stations.toList(),
                 currentIndex = findPreferredIndex(
                     stations,

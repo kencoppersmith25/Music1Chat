@@ -10,18 +10,15 @@ import android.content.Context
 import com.coppersmith.music1chat.persistence.AppPreferences
 import com.coppersmith.music1chat.session.PlaybackSessionState
 import com.coppersmith.music1chat.speech.CategoryAnnouncer
+import com.coppersmith.music1chat.session.PlaybackSessionMode
+
 
 class AnnouncementManager(
     context: Context
 ) {
-
     private val appContext = context.applicationContext
-
-    private val preferences =
-        AppPreferences(appContext)
-
-    private val announcer =
-        CategoryAnnouncer(appContext)
+    private val preferences = AppPreferences(appContext)
+    private val announcer = CategoryAnnouncer(appContext)
 
     var onSpeechStatusChanged: ((isSpeaking: Boolean) -> Unit)? = null
         set(value) {
@@ -56,9 +53,12 @@ class AnnouncementManager(
             return
         }
 
+        // A category is ONLY a search queue if its mode is explicitly SEARCH
+        val isSearchQueue = newState.mode == PlaybackSessionMode.SEARCH
+
         announceCategory(
             categoryName = newState.categoryName,
-            isSearchQueue = newState.isSearch
+            isSearchQueue = isSearchQueue
         )
     }
 
@@ -75,10 +75,13 @@ class AnnouncementManager(
             return
         }
 
-        val cleanCategoryName =
-            categoryName
-                .removePrefix("Search:")
-                .trim()
+        // If this is NOT a search queue, aggressively strip any accidental "Search:" prefix
+        // and any text following a colon or parenthesis to get the raw category name.
+        val cleanCategoryName = if (!isSearchQueue) {
+            categoryName.substringAfter("Search:").substringBefore("(").trim()
+        } else {
+            categoryName.removePrefix("Search:").trim()
+        }
 
         if (cleanCategoryName.isBlank()) {
             return
@@ -95,12 +98,9 @@ class AnnouncementManager(
     }
 
     fun speak(text: String) {
-        // Reload the saved voice in case it was changed in Settings while
-        // this long-lived manager remained active.
         announcer.selectVoiceForSession(
             preferences.loadCategoryAnnouncementVoiceId()
         )
-
         announcer.testVoice(text)
     }
 

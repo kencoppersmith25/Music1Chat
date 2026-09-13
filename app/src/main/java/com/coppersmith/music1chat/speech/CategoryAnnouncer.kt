@@ -175,25 +175,13 @@ class CategoryAnnouncer(
     ) {
         val trimmed = categoryName.trim()
 
-        var isSearch = isSearchQueue ||
-                trimmed.startsWith("search:", ignoreCase = true) ||
-                trimmed.startsWith("voice:", ignoreCase = true)
-
         val cleanName = when {
             trimmed.startsWith("search:", ignoreCase = true) -> trimmed.substring(7).trim()
             trimmed.startsWith("voice:", ignoreCase = true) -> trimmed.substring(6).trim()
             else -> trimmed
         }
 
-        // Check if cleanName matches any saved search query in AppPreferences
-        if (!isSearch) {
-            val savedSearches = appPreferences.loadSearchCategories()
-            if (savedSearches.any { it.query.equals(cleanName, ignoreCase = true) }) {
-                isSearch = true
-            }
-        }
-
-        val formattedName = if (isSearch && !cleanName.startsWith("search ", ignoreCase = true)) {
+        val formattedName = if (isSearchQueue && !cleanName.startsWith("search ", ignoreCase = true)) {
             "Search $cleanName"
         } else {
             cleanName
