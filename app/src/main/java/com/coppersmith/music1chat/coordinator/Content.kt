@@ -92,12 +92,12 @@ fun Content(
 ) {
     Column(
         modifier = Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
             .statusBarsPadding()
             .padding(
                 start = 14.dp,
                 end = 14.dp,
-                top = 0.dp, // Reduced from 10.dp
+                top = 0.dp,
                 bottom = 12.dp
             ),
         horizontalAlignment = Alignment.CenterHorizontally
