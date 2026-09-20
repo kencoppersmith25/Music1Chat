@@ -83,10 +83,91 @@ final class RadioBrowserService: Sendable {
              async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Kauai", limit: 40)
              async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Kona", limit: 40)
              async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Aloha", limit: 40)
-             async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Hawaii Music Live", limit: 30)
+             async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Hawaii Hawaiian Music Live", limit: 30)
 
              let hawaiiResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8)
              collected.append(contentsOf: hawaiiResults)
+         }
+
+         // Synergy Israel search matching Android
+         if normalized.contains("israel") {
+             async let s1 = fetch(baseUrl: baseUrl, field: "tag", text: "israel", limit: 100)
+             async let s2 = fetch(baseUrl: baseUrl, field: "tag", text: "israeli", limit: 100)
+             async let s3 = fetch(baseUrl: baseUrl, field: "tag", text: "hebrew", limit: 100)
+             async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Tel Aviv", limit: 60)
+             async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Jerusalem", limit: 50)
+             async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Haifa", limit: 40)
+             async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Galgalatz", limit: 40)
+
+             let israelResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7)
+             collected.append(contentsOf: israelResults)
+         }
+
+         // Synergy France search matching Android
+         if normalized.contains("franc") || normalized.contains("french") {
+             async let s1 = fetch(baseUrl: baseUrl, field: "tag", text: "french", limit: 100)
+             async let s2 = fetch(baseUrl: baseUrl, field: "tag", text: "francais", limit: 80)
+             async let s3 = fetch(baseUrl: baseUrl, field: "name", text: "France", limit: 60)
+             async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Paris", limit: 60)
+             async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Lyon", limit: 40)
+             async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Marseille", limit: 40)
+             async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Bordeaux", limit: 30)
+             async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Nantes", limit: 30)
+             async let s9 = fetch(baseUrl: baseUrl, field: "name", text: "Strasbourg", limit: 30)
+             async let s10 = fetch(baseUrl: baseUrl, field: "name", text: "Lille", limit: 30)
+             async let s11 = fetch(baseUrl: baseUrl, field: "tag", text: "chanson", limit: 40)
+             async let s12 = fetch(baseUrl: baseUrl, field: "name", text: "NRJ", limit: 40)
+             async let s13 = fetch(baseUrl: baseUrl, field: "name", text: "Nostalgie", limit: 30)
+             async let s14 = fetch(baseUrl: baseUrl, field: "name", text: "Skyrock", limit: 30)
+
+             let franceResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11 + s12 + s13 + s14)
+             collected.append(contentsOf: franceResults)
+         }
+
+         // Synergy Germany search matching Android
+         if normalized.contains("german") || normalized.contains("deutsch") {
+             async let s1 = fetch(baseUrl: baseUrl, field: "tag", text: "german", limit: 100)
+             async let s2 = fetch(baseUrl: baseUrl, field: "tag", text: "deutsch", limit: 80)
+             async let s3 = fetch(baseUrl: baseUrl, field: "name", text: "Germany", limit: 60)
+             async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Berlin", limit: 60)
+             async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Hamburg", limit: 40)
+             async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Munich", limit: 40)
+             async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "München", limit: 40)
+             async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Cologne", limit: 40)
+             async let s9 = fetch(baseUrl: baseUrl, field: "name", text: "Köln", limit: 40)
+             async let s10 = fetch(baseUrl: baseUrl, field: "name", text: "Frankfurt", limit: 40)
+             async let s11 = fetch(baseUrl: baseUrl, field: "name", text: "Antenne", limit: 40)
+             async let s12 = fetch(baseUrl: baseUrl, field: "name", text: "WDR", limit: 40)
+
+             let germanyResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11 + s12)
+             collected.append(contentsOf: germanyResults)
+         }
+
+         // Synergy Africa search matching Android
+         if normalized.contains("africa") || normalized.contains("nigeria") ||
+            normalized.contains("kenya") || normalized.contains("ghana") ||
+            normalized.contains("senegal") || normalized.contains("egypt") {
+
+             async let s1 = fetch(baseUrl: baseUrl, field: "name", text: "Nigeria", limit: 40)
+             async let s2 = fetch(baseUrl: baseUrl, field: "name", text: "Lagos", limit: 30)
+             async let s3 = fetch(baseUrl: baseUrl, field: "name", text: "South Africa", limit: 40)
+             async let s4 = fetch(baseUrl: baseUrl, field: "name", text: "Johannesburg", limit: 30)
+             async let s5 = fetch(baseUrl: baseUrl, field: "name", text: "Cape Town", limit: 25)
+             async let s6 = fetch(baseUrl: baseUrl, field: "name", text: "Kenya", limit: 30)
+             async let s7 = fetch(baseUrl: baseUrl, field: "name", text: "Nairobi", limit: 25)
+             async let s8 = fetch(baseUrl: baseUrl, field: "name", text: "Ghana", limit: 25)
+             async let s9 = fetch(baseUrl: baseUrl, field: "name", text: "Accra", limit: 20)
+             async let s10 = fetch(baseUrl: baseUrl, field: "name", text: "Senegal", limit: 20)
+             async let s11 = fetch(baseUrl: baseUrl, field: "name", text: "Dakar", limit: 15)
+             async let s12 = fetch(baseUrl: baseUrl, field: "name", text: "Morocco", limit: 20)
+             async let s13 = fetch(baseUrl: baseUrl, field: "name", text: "Casablanca", limit: 15)
+             async let s14 = fetch(baseUrl: baseUrl, field: "name", text: "Egypt", limit: 20)
+             async let s15 = fetch(baseUrl: baseUrl, field: "name", text: "Cairo", limit: 15)
+             async let s16 = fetch(baseUrl: baseUrl, field: "name", text: "Tanzania", limit: 15)
+             async let s17 = fetch(baseUrl: baseUrl, field: "name", text: "Ethiopia", limit: 15)
+
+             let africaResults = await (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11 + s12 + s13 + s14 + s15 + s16 + s17)
+             collected.append(contentsOf: africaResults)
          }
 
          let validStations = collected.filter { station in
@@ -221,6 +302,40 @@ final class RadioBrowserService: Sendable {
             score += 500
         } else if normalizedState.contains(normalizedQuery) {
             score += 700
+        }
+
+        // Country-Specific Boost matching Android
+        let isCountryMatch: Bool
+        switch normalizedQuery {
+        case "germany", "german", "deutschland", "deutsch":
+            isCountryMatch = normalizedCountry == "de"
+        case "france", "french", "francais":
+            isCountryMatch = normalizedCountry == "fr"
+        case "israel", "israeli", "hebrew":
+            isCountryMatch = normalizedCountry == "il"
+        case "hawaii", "hawaiian":
+            isCountryMatch = normalizedState == "hawaii"
+        case "kenya", "kenyan":
+            isCountryMatch = normalizedCountry == "ke"
+        case "nigeria", "nigerian":
+            isCountryMatch = normalizedCountry == "ng"
+        case "ghana", "ghanian":
+            isCountryMatch = normalizedCountry == "gh"
+        case "egypt", "egyptian":
+            isCountryMatch = normalizedCountry == "eg"
+        case "senegal", "senegalese":
+            isCountryMatch = normalizedCountry == "sn"
+        case "south africa":
+            isCountryMatch = normalizedCountry == "za"
+        case "africa", "african":
+            let africanCodes: Set<String> = ["ng", "za", "ke", "eg", "gh", "et", "sn", "ma", "tz", "ug", "dz", "ao", "cm", "ci", "sd", "cd"]
+            isCountryMatch = africanCodes.contains(normalizedCountry)
+        default:
+            isCountryMatch = false
+        }
+
+        if isCountryMatch {
+            score += 900
         }
 
         if !queryWords.isEmpty {

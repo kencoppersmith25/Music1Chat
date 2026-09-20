@@ -14,8 +14,8 @@ android {
         applicationId = "com.coppersmith.music1chat"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.6"
+        versionCode = 13
+        versionName = "1.8"
 
         testInstrumentationRunner =
             "androidx.test.runner.AndroidJUnitRunner"

@@ -36,7 +36,7 @@ class LiveStationSearchEngine(
         val radioBrowserStations =
             radioBrowserClient.search(
                 query = searchText,
-                limit = (limit * 3).coerceAtMost(100)
+                limit = (limit * 4).coerceAtMost(300)
             )
 
         // SYNERGY SEARCH: If the query is "Hawaii" or "Hawaiian", find everything on the islands.
@@ -46,7 +46,84 @@ class LiveStationSearchEngine(
              radioBrowserClient.search(query = "Kauai", limit = 15) +
              radioBrowserClient.search(query = "Kona", limit = 15) +
              radioBrowserClient.search(query = "Aloha", limit = 15) +
-             radioBrowserClient.search(query = "Hawaii Music Live", limit = 10)
+             radioBrowserClient.search(query = "Hawaii Hawaiian Music Live", limit = 10)
+        } else if (normalizedQuery.contains("israel")) {
+             radioBrowserClient.search(query = "Tel Aviv", limit = 30) +
+             radioBrowserClient.search(query = "Jerusalem", limit = 30) +
+             radioBrowserClient.search(query = "Haifa", limit = 20) +
+             radioBrowserClient.search(query = "Hebrew", limit = 20) +
+             radioBrowserClient.search(query = "Galgalatz", limit = 20)
+        } else if (normalizedQuery.contains("franc") || normalizedQuery.contains("french")) {
+             radioBrowserClient.search(query = "France", limit = 40) +
+             radioBrowserClient.search(query = "French", limit = 40) +
+             radioBrowserClient.search(query = "Paris", limit = 40) +
+             radioBrowserClient.search(query = "Lyon", limit = 20) +
+             radioBrowserClient.search(query = "Marseille", limit = 20) +
+             radioBrowserClient.search(query = "Bordeaux", limit = 15) +
+             radioBrowserClient.search(query = "Toulouse", limit = 15) +
+             radioBrowserClient.search(query = "Nice", limit = 15) +
+             radioBrowserClient.search(query = "Nantes", limit = 15) +
+             radioBrowserClient.search(query = "Strasbourg", limit = 15) +
+             radioBrowserClient.search(query = "Montpellier", limit = 15) +
+             radioBrowserClient.search(query = "Lille", limit = 15) +
+             radioBrowserClient.search(query = "Rennes", limit = 15) +
+             radioBrowserClient.search(query = "Reims", limit = 15) +
+             radioBrowserClient.search(query = "Chanson", limit = 20) +
+             radioBrowserClient.search(query = "NRJ", limit = 25) +
+             radioBrowserClient.search(query = "FIP", limit = 20) +
+             radioBrowserClient.search(query = "Nostalgie", limit = 20) +
+             radioBrowserClient.search(query = "Skyrock", limit = 20) +
+             radioBrowserClient.search(query = "Fun Radio", limit = 20)
+        } else if (normalizedQuery.contains("german") || normalizedQuery.contains("deutsch")) {
+             radioBrowserClient.search(query = "Germany", limit = 40) +
+             radioBrowserClient.search(query = "German", limit = 40) +
+             radioBrowserClient.search(query = "Berlin", limit = 40) +
+             radioBrowserClient.search(query = "Hamburg", limit = 20) +
+             radioBrowserClient.search(query = "Munich", limit = 20) +
+             radioBrowserClient.search(query = "München", limit = 20) +
+             radioBrowserClient.search(query = "Cologne", limit = 20) +
+             radioBrowserClient.search(query = "Köln", limit = 20) +
+             radioBrowserClient.search(query = "Frankfurt", limit = 20) +
+             radioBrowserClient.search(query = "Stuttgart", limit = 15) +
+             radioBrowserClient.search(query = "Düsseldorf", limit = 15) +
+             radioBrowserClient.search(query = "Dortmund", limit = 15) +
+             radioBrowserClient.search(query = "Essen", limit = 15) +
+             radioBrowserClient.search(query = "Leipzig", limit = 15) +
+             radioBrowserClient.search(query = "Antenne", limit = 25) +
+             radioBrowserClient.search(query = "WDR", limit = 20) +
+             radioBrowserClient.search(query = "NDR", limit = 20) +
+             radioBrowserClient.search(query = "SWR", limit = 20)
+        } else if (normalizedQuery.contains("africa") || normalizedQuery.contains("nigeria") || 
+                   normalizedQuery.contains("kenya") || normalizedQuery.contains("ghana") || 
+                   normalizedQuery.contains("senegal") || normalizedQuery.contains("egypt")) {
+             
+             val results = mutableListOf<RadioBrowserStation>()
+             
+             // Core Continent/Country Search
+             results += radioBrowserClient.search(query = searchText, limit = 50)
+             
+             // Specific Synergy Cities based on what they typed
+             if (normalizedQuery.contains("nigeria") || normalizedQuery.contains("africa")) {
+                 results += radioBrowserClient.search(query = "Lagos", limit = 30)
+             }
+             if (normalizedQuery.contains("kenya") || normalizedQuery.contains("africa")) {
+                 results += radioBrowserClient.search(query = "Nairobi", limit = 30)
+             }
+             if (normalizedQuery.contains("ghana") || normalizedQuery.contains("africa")) {
+                 results += radioBrowserClient.search(query = "Accra", limit = 20)
+             }
+             if (normalizedQuery.contains("south africa") || normalizedQuery.contains("africa")) {
+                 results += radioBrowserClient.search(query = "Johannesburg", limit = 30)
+                 results += radioBrowserClient.search(query = "Cape Town", limit = 25)
+             }
+             if (normalizedQuery.contains("egypt") || normalizedQuery.contains("africa")) {
+                 results += radioBrowserClient.search(query = "Cairo", limit = 20)
+             }
+             if (normalizedQuery.contains("senegal") || normalizedQuery.contains("africa")) {
+                 results += radioBrowserClient.search(query = "Dakar", limit = 20)
+             }
+             
+             results
         } else {
             emptyList()
         }
@@ -134,6 +211,28 @@ class LiveStationSearchEngine(
             normalizedTags == normalizedQuery -> score += 550
             normalizedTags.contains(normalizedQuery) -> score += 500
             normalizedState.contains(normalizedQuery) -> score += 700
+        }
+
+        // 2. Country-Specific Boost
+        val isCountryMatch = when (normalizedQuery) {
+            "germany", "german", "deutschland", "deutsch" -> normalizedCountry == "de"
+            "france", "french", "francais" -> normalizedCountry == "fr"
+            "israel", "israeli", "hebrew" -> normalizedCountry == "il"
+            "hawaii", "hawaiian" -> normalizedState == "hawaii"
+            "kenya", "kenyan" -> normalizedCountry == "ke"
+            "nigeria", "nigerian" -> normalizedCountry == "ng"
+            "ghana", "ghanian" -> normalizedCountry == "gh"
+            "egypt", "egyptian" -> normalizedCountry == "eg"
+            "senegal", "senegalese" -> normalizedCountry == "sn"
+            "south africa" -> normalizedCountry == "za"
+            "africa", "african" -> {
+                val africanCodes = setOf("ng", "za", "ke", "eg", "gh", "et", "sn", "ma", "tz", "ug", "dz", "ao", "cm", "ci", "sd", "cd")
+                normalizedCountry in africanCodes
+            }
+            else -> false
+        }
+        if (isCountryMatch) {
+            score += 900
         }
 
         if (queryWords.isNotEmpty()) {

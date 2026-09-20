@@ -75,26 +75,13 @@ class RadioBrowserClient {
         text: String,
         finalLimit: Int
     ): List<RadioBrowserStation> = withContext(Dispatchers.IO) {
-        val normalized = text.lowercase()
         val deferredSearches = mutableListOf<kotlinx.coroutines.Deferred<List<RadioBrowserStation>>>()
 
 
         coroutineScope {
-            // 1. Core Searches - Fetch broader pools with higher limit
+            // Core Searches
             deferredSearches += async { fetch(baseUrl, "name", text, 100) }
             deferredSearches += async { fetch(baseUrl, "tag", text, 100) }
-
-            // 2. Ultra Hawaiian Synergy
-            if (normalized.contains("hawai")) {
-                deferredSearches += async { fetch(baseUrl, "state", "Hawaii", 100) }
-                deferredSearches += async { fetch(baseUrl, "tag", "hawaiian", 100) }
-                deferredSearches += async { fetch(baseUrl, "name", "Honolulu", 60) }
-                deferredSearches += async { fetch(baseUrl, "name", "Maui", 50) }
-                deferredSearches += async { fetch(baseUrl, "name", "Kauai", 40) }
-                deferredSearches += async { fetch(baseUrl, "name", "Kona", 40) }
-                deferredSearches += async { fetch(baseUrl, "name", "Aloha", 40) }
-                deferredSearches += async { fetch(baseUrl, "name", "Hawaii Music Live", 30) }
-            }
         }
 
         val collected = mutableListOf<RadioBrowserStation>()
@@ -105,10 +92,6 @@ class RadioBrowserClient {
                 collected += results
                 successfulRequests++
             }
-        }
-
-        if (successfulRequests == 0 && collected.isEmpty()) {
-            throw IllegalStateException("No results or server error.")
         }
 
         // Filter out stations with empty names or URLs

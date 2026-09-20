@@ -21,7 +21,7 @@ object AdConfig {
     
     // Your Live Android IDs
     private const val ANDROID_LIVE_BANNER = "ca-app-pub-6232643827829257/3475698773"
-    const val ANDROID_LIVE_INTERSTITIAL = "" // Add your ID here when ready
+    const val ANDROID_LIVE_INTERSTITIAL = "ca-app-pub-6232643827829257/7859700294" // Add your ID here when ready
 
     val ANDROID_BANNER_ID: String
         get() = if (USE_TEST_ADS) ANDROID_TEST_BANNER else ANDROID_LIVE_BANNER
