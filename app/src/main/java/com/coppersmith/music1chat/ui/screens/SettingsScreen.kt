@@ -64,6 +64,8 @@ import com.coppersmith.music1chat.speech.CategoryAnnouncer
 import com.coppersmith.music1chat.speech.VoiceExplorer
 import com.coppersmith.music1chat.diagnostics.RideLogger
 import kotlin.math.roundToInt
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 @Composable
 fun SettingsScreen(
@@ -129,6 +131,14 @@ fun SettingsScreen(
         mutableStateOf(
             appPreferences
                 .loadSearchIndicatorSoundEnabled()
+        )
+    }
+
+    var stationTimeoutSeconds by
+    remember {
+        mutableStateOf(
+            appPreferences
+                .loadStationTimeoutSeconds()
         )
     }
 
@@ -578,63 +588,169 @@ fun SettingsScreen(
                     )
 
                     Text(
-                        text = "Diagnostics",
-                        color = MaterialTheme.colorScheme.primary,
+                        text = "Station Timeout",
+                        color =
+                            MaterialTheme.colorScheme.primary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(
+                        modifier = Modifier.height(10.dp)
+                    )
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { RideLogger.share(context) }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    val timeoutOptions = listOf(
+                        2L to "2 seconds",
+                        5L to "5 seconds",
+                        10L to "10 seconds",
+                        30L to "30 seconds",
+                        60L to "1 minute",
+                        120L to "2 minutes",
+                        600L to "10 minutes"
+                    )
+
+                    val currentTimeoutLabel = timeoutOptions.firstOrNull { it.first == stationTimeoutSeconds }?.second ?: "10 seconds"
+                    val currentIndex = timeoutOptions.indexOfFirst { it.first == stationTimeoutSeconds }
+                        .let { if (it >= 0) it else 2 }
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Share,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = "Skip failed station after",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+
+                                Text(
+                                    text = "Choose how long to wait before attempting the next station.",
+                                    color =
+                                        MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                    fontSize = 14.sp,
+                                    lineHeight = 19.sp
+                                )
+                            }
+
+                            Text(
+                                text = currentTimeoutLabel,
+                                modifier = Modifier.padding(start = 16.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(
+                            modifier = Modifier.height(10.dp)
                         )
-                        Column(
-                            modifier = Modifier
-                                .padding(start = 16.dp)
-                                .weight(1f)
+
+                        Slider(
+                            value = currentIndex.toFloat(),
+                            onValueChange = { sliderValue ->
+                                val newIndex = sliderValue.roundToInt().coerceIn(0, timeoutOptions.size - 1)
+                                stationTimeoutSeconds = timeoutOptions[newIndex].first
+                                appPreferences.saveStationTimeoutSeconds(stationTimeoutSeconds)
+                            },
+                            valueRange = 0f..(timeoutOptions.size - 1).toFloat(),
+                            steps = timeoutOptions.size - 2,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Share Ride Log",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "Send technical logs to the developer for troubleshooting.",
+                                text = "2 seconds",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 14.sp,
-                                lineHeight = 19.sp
+                                fontSize = 13.sp
+                            )
+
+                            Text(
+                                text = "10 minutes",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp
                             )
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(
+                    modifier = Modifier.height(22.dp)
+                )
 
-                    OutlinedButton(
-                        onClick = { RideLogger.clearLog() },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.error
-                        )
+                HorizontalDivider()
+
+                Spacer(
+                    modifier = Modifier.height(18.dp)
+                )
+
+                Text(
+                    text = "Diagnostics",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { RideLogger.share(context) }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Column(
+                        modifier = Modifier
+                            .padding(start = 16.dp)
+                            .weight(1f)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
+                        Text(
+                            text = "Share Ride Log",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text("Clear Log")
+                        Text(
+                            text = "Send technical logs to the developer for troubleshooting.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 14.sp,
+                            lineHeight = 19.sp
+                        )
                     }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = { RideLogger.clearLog() },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text("Clear Log")
                 }
 
                 Spacer(
@@ -734,8 +850,7 @@ private fun VoicePickerDialog(
     onVoiceSelected: (String?) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var selectedVoiceId by
-    remember {
+    var selectedVoiceId by remember {
         mutableStateOf<String?>(null)
     }
 
@@ -752,11 +867,8 @@ private fun VoicePickerDialog(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text =
-                        "Tap a voice to hear it immediately. Your choice is saved automatically.",
-                    color =
-                        MaterialTheme.colorScheme
-                            .onSurfaceVariant,
+                    text = "Tap a voice to hear it immediately. Your choice is saved automatically.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     lineHeight = 19.sp
                 )
@@ -767,8 +879,7 @@ private fun VoicePickerDialog(
 
                 VoiceChoiceRow(
                     title = "Phone Default",
-                    subtitle =
-                        "Use the phone's normal Text-to-Speech voice.",
+                    subtitle = "Use the phone's normal Text-to-Speech voice.",
                     selected = selectedVoiceId == DEFAULT_VOICE_MARKER,
                     onClick = {
                         selectedVoiceId = DEFAULT_VOICE_MARKER
@@ -781,14 +892,11 @@ private fun VoicePickerDialog(
                 when {
                     voicesLoading -> {
                         Row(
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 24.dp),
-                            horizontalArrangement =
-                                Arrangement.Center,
-                            verticalAlignment =
-                                Alignment.CenterVertically
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(28.dp)
@@ -798,13 +906,9 @@ private fun VoicePickerDialog(
 
                     voices.isEmpty() -> {
                         Text(
-                            text =
-                                "No installed English voices were found.",
-                            modifier =
-                                Modifier.padding(vertical = 18.dp),
-                            color =
-                                MaterialTheme.colorScheme
-                                    .onSurfaceVariant
+                            text = "No installed English voices were found.",
+                            modifier = Modifier.padding(vertical = 18.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -818,14 +922,12 @@ private fun VoicePickerDialog(
                             ) { voice ->
                                 VoiceChoiceRow(
                                     title = voice.displayName,
-                                    subtitle =
-                                        if (voice.isNetworkVoice) {
-                                            "Requires a network connection"
-                                        } else {
-                                            "Available offline"
-                                        },
-                                    selected =
-                                        selectedVoiceId == voice.voiceId,
+                                    subtitle = if (voice.isNetworkVoice) {
+                                        "Requires a network connection"
+                                    } else {
+                                        "Available offline"
+                                    },
+                                    selected = selectedVoiceId == voice.voiceId,
                                     onClick = {
                                         selectedVoiceId = voice.voiceId
                                         onVoiceSelected(voice.voiceId)
@@ -841,8 +943,7 @@ private fun VoicePickerDialog(
     )
 }
 
-private const val DEFAULT_VOICE_MARKER =
-    "__phone_default__"
+private const val DEFAULT_VOICE_MARKER = "__phone_default__"
 
 @Composable
 private fun VoiceChoiceRow(
@@ -852,15 +953,11 @@ private fun VoiceChoiceRow(
     onClick: () -> Unit
 ) {
     Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(
-                    vertical = 8.dp
-                ),
-        verticalAlignment =
-            Alignment.CenterVertically
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         RadioButton(
             selected = selected,
@@ -868,27 +965,23 @@ private fun VoiceChoiceRow(
         )
 
         Column(
-            modifier =
-                Modifier
-                    .weight(1f)
-                    .padding(start = 6.dp)
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 6.dp)
         ) {
             Text(
                 text = title,
                 fontSize = 16.sp,
-                fontWeight =
-                    if (selected) {
-                        FontWeight.SemiBold
-                    } else {
-                        FontWeight.Normal
-                    }
+                fontWeight = if (selected) {
+                    FontWeight.SemiBold
+                } else {
+                    FontWeight.Normal
+                }
             )
 
             Text(
                 text = subtitle,
-                color =
-                    MaterialTheme.colorScheme
-                        .onSurfaceVariant,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 17.sp
             )

@@ -12,6 +12,8 @@ class NavigationEngine(
     private val membershipRepository: MembershipRepository,
     initialState: NavigationState = NavigationState()
 ) {
+
+
     private var state = initialState
 
     init {
@@ -26,6 +28,7 @@ class NavigationEngine(
             }
         }
     }
+
 
     fun getState(): NavigationState = state
 
@@ -191,10 +194,11 @@ class NavigationEngine(
 
         val targetCategory = playableCategories[targetCategoryIndex]
 
+        // Filters out ineligible/failed stations here:
         val targetStation =
             membershipRepository
                 .getNavigationStationsForCategory(targetCategory.id)
-                .firstOrNull()
+                .firstOrNull { station -> isStationEligible(station) }
                 ?: return NavigationResult(
                     state = state,
                     statusMessage =
@@ -225,10 +229,9 @@ class NavigationEngine(
 
     private fun findFirstPlayableSelection(): Selection? {
         getPlayableCategories().forEach { category ->
-            val station =
-                membershipRepository
-                    .getNavigationStationsForCategory(category.id)
-                    .firstOrNull()
+            val station = membershipRepository
+                .getNavigationStationsForCategory(category.id)
+                .firstOrNull { station -> isStationEligible(station) }
 
             if (station != null) {
                 return Selection(
@@ -237,7 +240,6 @@ class NavigationEngine(
                 )
             }
         }
-
         return null
     }
 

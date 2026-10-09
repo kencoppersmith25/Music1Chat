@@ -4,6 +4,7 @@ package com.coppersmith.music1chat.persistence
 // Release: 2026-07-16 v01
 // Matched files: MainScreen, StationListScreen, AppPreferences
 
+
 import android.content.Context
 import com.coppersmith.music1chat.models.Category
 import com.coppersmith.music1chat.models.CategoryType
@@ -18,6 +19,16 @@ import org.json.JSONObject
 class AppPreferences(
     context: Context
 ) {
+
+
+    fun saveStationTimeoutSeconds(seconds: Long) {
+        preferences.edit().putLong("station_timeout_seconds", seconds).apply()
+    }
+
+    fun loadStationTimeoutSeconds(): Long {
+        return preferences.getLong("station_timeout_seconds", 8L)
+    }
+
     fun loadAnnounceCategoryChanges(): Boolean =
         preferences.getBoolean(
             KEY_ANNOUNCE_CATEGORY_CHANGES,

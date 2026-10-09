@@ -39,16 +39,128 @@ class LiveStationSearchEngine(
                 limit = (limit * 3).coerceAtMost(100)
             )
 
-        // SYNERGY SEARCH: If the query is "Hawaii" or "Hawaiian", find everything on the islands.
-        val synergyStations = if (normalizedQuery.contains("hawai")) {
-             radioBrowserClient.search(query = "Honolulu", limit = 30) + 
-             radioBrowserClient.search(query = "Maui", limit = 20) +
-             radioBrowserClient.search(query = "Kauai", limit = 15) +
-             radioBrowserClient.search(query = "Kona", limit = 15) +
-             radioBrowserClient.search(query = "Aloha", limit = 15) +
-             radioBrowserClient.search(query = "Hawaii Music Live", limit = 10)
-        } else {
-            emptyList()
+        // SYNERGY SEARCH: Expand broad geographic regions into key hubs/tags.
+        val synergyStations = when {
+            normalizedQuery.contains("hawai") || normalizedQuery.contains("hawaiian") -> {
+                radioBrowserClient.search(query = "Honolulu") +
+                        radioBrowserClient.search(query = "Maui") +
+                        radioBrowserClient.search(query = "Kauai") +
+                        radioBrowserClient.search(query = "Kona") +
+                        radioBrowserClient.search(query = "Aloha") +
+                        radioBrowserClient.search(query = "Hawaii Music Live")
+            }
+            normalizedQuery.contains("israel") || normalizedQuery.contains("israeli") -> {
+                radioBrowserClient.search(query = "Tel Aviv") +
+                        radioBrowserClient.search(query = "Jerusalem") +
+                        radioBrowserClient.search(query = "Haifa") +
+                        radioBrowserClient.search(query = "Israel")
+            }
+            normalizedQuery.contains("africa") || normalizedQuery.contains("african") -> {
+                radioBrowserClient.search(query = "Lagos") +
+                        radioBrowserClient.search(query = "Johannesburg") +
+                        radioBrowserClient.search(query = "Cairo") +
+                        radioBrowserClient.search(query = "Nairobi") +
+                        radioBrowserClient.search(query = "Casablanca") +
+                        radioBrowserClient.search(query = "African")
+            }
+            normalizedQuery.contains("france") || normalizedQuery.contains("french") -> {
+                radioBrowserClient.search(query = "Paris") +
+                        radioBrowserClient.search(query = "Lyon") +
+                        radioBrowserClient.search(query = "Marseille") +
+                        radioBrowserClient.search(query = "France")
+            }
+            normalizedQuery.contains("germany") || normalizedQuery.contains("german") -> {
+                radioBrowserClient.search(query = "Berlin") +
+                        radioBrowserClient.search(query = "Munich") +
+                        radioBrowserClient.search(query = "Frankfurt") +
+                        radioBrowserClient.search(query = "Germany")
+            }
+            normalizedQuery.contains("puerto rico") || normalizedQuery.contains("puertorico") || normalizedQuery.contains("puertorican") -> {
+                radioBrowserClient.search(query = "San Juan") +
+                        radioBrowserClient.search(query = "Ponce") +
+                        radioBrowserClient.search(query = "Mayaguez") +
+                        radioBrowserClient.search(query = "Puerto Rico")
+            }
+            normalizedQuery.contains("norway") || normalizedQuery.contains("norwegian") -> {
+                radioBrowserClient.search(query = "Oslo") +
+                        radioBrowserClient.search(query = "Bergen") +
+                        radioBrowserClient.search(query = "Trondheim") +
+                        radioBrowserClient.search(query = "Norway")
+            }
+            normalizedQuery.contains("sweden") || normalizedQuery.contains("swedish") -> {
+                radioBrowserClient.search(query = "Stockholm") +
+                        radioBrowserClient.search(query = "Gothenburg") +
+                        radioBrowserClient.search(query = "Malmo") +
+                        radioBrowserClient.search(query = "Sweden")
+            }
+            normalizedQuery.contains("india") || normalizedQuery.contains("indian") -> {
+                radioBrowserClient.search(query = "Mumbai") +
+                        radioBrowserClient.search(query = "Delhi") +
+                        radioBrowserClient.search(query = "Bangalore") +
+                        radioBrowserClient.search(query = "India")
+            }
+            normalizedQuery.contains("china") || normalizedQuery.contains("chinese") -> {
+                radioBrowserClient.search(query = "Beijing") +
+                        radioBrowserClient.search(query = "Shanghai") +
+                        radioBrowserClient.search(query = "Hong Kong") +
+                        radioBrowserClient.search(query = "China")
+            }
+            normalizedQuery.contains("japan") || normalizedQuery.contains("japanese") -> {
+                radioBrowserClient.search(query = "Tokyo") +
+                        radioBrowserClient.search(query = "Osaka") +
+                        radioBrowserClient.search(query = "Kyoto") +
+                        radioBrowserClient.search(query = "Japan")
+            }
+            normalizedQuery.contains("brazil") || normalizedQuery.contains("brazilian") -> {
+                radioBrowserClient.search(query = "Rio de Janeiro") +
+                        radioBrowserClient.search(query = "Sao Paulo") +
+                        radioBrowserClient.search(query = "Salvador") +
+                        radioBrowserClient.search(query = "Brazil")
+            }
+            normalizedQuery.contains("colombia") || normalizedQuery.contains("colombian") -> {
+                radioBrowserClient.search(query = "Bogota") +
+                        radioBrowserClient.search(query = "Medellin") +
+                        radioBrowserClient.search(query = "Colombia")
+            }
+            normalizedQuery.contains("argentina") -> {
+                radioBrowserClient.search(query = "Buenos Aires") +
+                        radioBrowserClient.search(query = "Cordoba") +
+                        radioBrowserClient.search(query = "Argentina")
+            }
+            normalizedQuery.contains("united kingdom") || normalizedQuery.contains("uk") || normalizedQuery.contains("british") -> {
+                radioBrowserClient.search(query = "London") +
+                        radioBrowserClient.search(query = "Manchester") +
+                        radioBrowserClient.search(query = "Birmingham") +
+                        radioBrowserClient.search(query = "United Kingdom")
+            }
+            normalizedQuery.contains("italy") || normalizedQuery.contains("italian") -> {
+                radioBrowserClient.search(query = "Rome") +
+                        radioBrowserClient.search(query = "Milan") +
+                        radioBrowserClient.search(query = "Naples") +
+                        radioBrowserClient.search(query = "Italy")
+            }
+            normalizedQuery.contains("spain") || normalizedQuery.contains("spanish") -> {
+                radioBrowserClient.search(query = "Madrid") +
+                        radioBrowserClient.search(query = "Barcelona") +
+                        radioBrowserClient.search(query = "Spain")
+            }
+            normalizedQuery.contains("south korea") || normalizedQuery.contains("korean") -> {
+                radioBrowserClient.search(query = "Seoul") +
+                        radioBrowserClient.search(query = "Busan") +
+                        radioBrowserClient.search(query = "Korea")
+            }
+            normalizedQuery.contains("philippines") || normalizedQuery.contains("filipino") -> {
+                radioBrowserClient.search(query = "Manila") +
+                        radioBrowserClient.search(query = "Cebu") +
+                        radioBrowserClient.search(query = "Philippines")
+            }
+            normalizedQuery.contains("australia") || normalizedQuery.contains("australian") -> {
+                radioBrowserClient.search(query = "Sydney") +
+                        radioBrowserClient.search(query = "Melbourne") +
+                        radioBrowserClient.search(query = "Brisbane") +
+                        radioBrowserClient.search(query = "Australia")
+            }
+            else -> emptyList()
         }
 
         val allCandidateStations = radioBrowserStations + synergyStations

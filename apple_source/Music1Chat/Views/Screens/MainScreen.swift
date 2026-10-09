@@ -1,10 +1,11 @@
 // Music1Chat V9.8 TESTFLIGHT PREP — 2026-08-08
 // Keeps the working AdMob TEST banner and separates the approved header artwork
 // so the no-hands symbol and radio have a little more breathing room.
-// Updated: Overlay dimensions and silent search error logging.
+// Updated: Overlay dimensions, silent search error logging, category resume memory.
 import SwiftUI
 import AVKit
 import GoogleMobileAds
+import WidgetKit
 
 struct MainScreen: View {
     @EnvironmentObject private var player: AudioPlayerService
@@ -27,35 +28,37 @@ struct MainScreen: View {
     @State private var searchErrorMessage: String?
     @State private var categoryNavigationGeneration = 0
     @State private var isAppStarting = true
+    @State private var pendingDeleteCategory: Category?
+    @Environment(\.scenePhase) private var scenePhase // Monitors app foreground/background states
+    
     @FocusState private var searchFieldFocused: Bool
-
     private let radioBrowserService = RadioBrowserService()
-
+    
     private let defaultQuickSearches = [
         "60s",
         "Classical",
         "Jazz",
         "Rock"
     ]
-
+    
     private let genreChoices = [
-        "60s", "70s", "80s", "90s", "Alternative", "Ambient",
+        "60s", "70s", "80s", "90s", "African", "Alternative", "Ambient",
         "Americana", "Big Band", "Bluegrass", "Blues", "Celtic",
         "Chill Out", "Christian", "Classical", "College", "Comedy",
-        "Country", "Dance", "Disco", "Electronic", "Folk", "Funk",
-        "Gospel", "Hawaiian", "Hip Hop", "House", "Indie", "Jazz",
+        "Country", "Dance", "Disco", "Electronic", "Folk", "Funk", "France",
+        "German", "Gospel", "Hawaiian", "Hip Hop", "House", "Indie", "Jazz",
         "K-pop", "Latin", "Lounge", "Metal", "Oldies", "Opera",
         "Piano", "Pop", "Public", "Punk", "Reggae", "Relaxation",
         "Rock", "Smooth Jazz", "Soul", "Soundtrack", "St. Louis",
         "Talk", "Techno", "Trance", "World"
     ]
-
+    
     var body: some View {
         NavigationStack {
             ZStack {
                 Color.black
                     .ignoresSafeArea()
-
+                
                 ScrollView {
                     VStack(spacing: 10) {
                         topBar
@@ -63,29 +66,29 @@ struct MainScreen: View {
                         categoryCard
                         nowPlayingCard
                         playbackControls
-
+                        
                         Spacer().frame(height: 25)
                     }
                     .padding(.horizontal, 12)
                     .padding(.top, 2)
                 }
-
+                
                 if showSearchOverlay {
                     searchOverlay
                 }
-
+                
                 if showCategoryList {
                     categoryListOverlay
                 }
-
+                
                 if stationListSearchName != nil || stationListCategoryID != nil {
                     stationListOverlay
                 }
-
+                
                 if showSaveStationDialog {
                     saveStationOverlay
                 }
-
+                
                 if showSettingsOverlay {
                     settingsOverlay
                 }
@@ -101,31 +104,77 @@ struct MainScreen: View {
             .onAppear {
                 lastAnnouncedCategoryName = player.activeQueueName
                 player.feedbackSoundsEnabled = settings.feedbackSoundsEnabled
-
-                // Start immediately instead of waiting 2.5 seconds
-                isAppStarting = false
-
+                
+                // Check immediately for any pending actions triggered from the widget
+                AudioPlayerService.shared.handlePendingWidgetAction()
+                            
+                // Listen for native local notifications sent when widget actions occur
+                NotificationCenter.default.addObserver(
+                    forName: Notification.Name("com.coppersmith.music1chat.action"),
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    AudioPlayerService.shared.handlePendingWidgetAction()
+                }
+                
+                // Keep app starting flagged for 2 seconds to prevent launch announcements
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    isAppStarting = false
+                }
+                
                 player.onNextTrackCommand = {
                     nextStation()
                 }
-
+                
                 player.onPreviousTrackCommand = {
                     handlePreviousTrackCommand()
                 }
-
+                
                 player.onAuditionFailed = { _ in }
-
+                
                 Music1ChatIntentBridge.shared.connectCategoryActions(
                     next: { nextCategory() },
                     previous: { previousCategory() }
                 )
-
+                
                 scheduleNavigationPrefetch()
+            }
+            .onOpenURL { url in
+                handleWidgetControl(url)
             }
             .onDisappear {
                 player.onNextTrackCommand = nil
                 player.onPreviousTrackCommand = nil
                 Music1ChatIntentBridge.shared.disconnectCategoryActions()
+                
+                // Remove observer cleanly
+                NotificationCenter.default.removeObserver(
+                    self,
+                    name: Notification.Name("com.coppersmith.music1chat.action"),
+                    object: nil
+                )
+            }
+            .onOpenURL { url in
+                handleWidgetControl(url)
+            }
+            .onDisappear {
+                player.onNextTrackCommand = nil
+                player.onPreviousTrackCommand = nil
+                Music1ChatIntentBridge.shared.disconnectCategoryActions()
+                
+                // Remove notification observer on disappear
+                CFNotificationCenterRemoveObserver(
+                    CFNotificationCenterGetDarwinNotifyCenter(),
+                    nil,
+                    CFNotificationName("com.coppersmith.music1chat.action" as CFString),
+                    nil
+                )
+            }
+            .onChange(of: scenePhase) { oldPhase, newPhase in
+                if newPhase == .active {
+                    // Whenever the app becomes active, check if the widget left an action behind
+                    AudioPlayerService.shared.handlePendingWidgetAction()
+                }
             }
             .onChange(of: player.activeLibraryCategoryID) { _, _ in
                 announceCategoryIfNeeded(player.activeQueueName)
@@ -143,24 +192,33 @@ struct MainScreen: View {
             .onChange(of: settings.feedbackSoundsEnabled) { _, newValue in
                 player.feedbackSoundsEnabled = newValue
             }
+            .onChange(of: player.nowPlayingTitle) { _, _ in player.syncWidgetData() }
+            .onChange(of: player.currentStation) { _, _ in player.syncWidgetData() }
+            .onChange(of: player.activeQueueName) { _, _ in player.syncWidgetData() }
+            .onChange(of: player.isPlaying) { _, _ in player.syncWidgetData() }
+            .onChange(of: scenePhase) { newPhase in
+                if newPhase == .active {
+                    AudioPlayerService.shared.handlePendingWidgetAction()
+                }
+            }
             .alert(
-                "Delete Search: \(pendingDeleteSearchName ?? "")?",
+                "Delete Category: \(pendingDeleteCategory?.name ?? "")?",
                 isPresented: Binding(
-                    get: { pendingDeleteSearchName != nil },
-                    set: { if !$0 { pendingDeleteSearchName = nil } }
+                    get: { pendingDeleteCategory != nil },
+                    set: { if !$0 { pendingDeleteCategory = nil } }
                 )
             ) {
                 Button("Cancel", role: .cancel) {
-                    pendingDeleteSearchName = nil
+                    pendingDeleteCategory = nil
                 }
                 Button("Delete", role: .destructive) {
-                    if let name = pendingDeleteSearchName {
-                        deleteSearchCategory(named: name)
+                    if let category = pendingDeleteCategory {
+                        deleteLibraryCategory(category)
                     }
-                    pendingDeleteSearchName = nil
+                    pendingDeleteCategory = nil
                 }
             } message: {
-                Text("This removes the saved search category. The station currently playing will keep playing while No Hands Radio finds the next enabled category.")
+                Text("This removes the category and its saved stations. Playback will switch to the next enabled category.")
             }
             .alert(
                 "Search",
@@ -175,9 +233,46 @@ struct MainScreen: View {
             }
         }
     }
-
+    
+    // MARK: - Widget Action Handler
+    
+//    private func handlePendingWidgetAction() {
+//        let appGroupIdentifier = "group.com.coppersmith.music1chat"
+//        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+//            return
+//        }
+//        
+//        // Force UserDefaults to synchronize with disk to pick up background widget writes
+//        sharedDefaults.synchronize()
+//        
+//        guard let action = sharedDefaults.string(forKey: "pendingWidgetAction") else {
+//            return
+//        }
+//        
+//        // Clear immediately to prevent duplicate triggering
+//        sharedDefaults.removeObject(forKey: "pendingWidgetAction")
+//        sharedDefaults.synchronize()
+//        
+//        print("🎯 Widget Action Triggered: \(action)")
+//        
+//        switch action {
+//        case "nextCategory":
+//            nextCategory()
+//        case "previousCategory":
+//            previousCategory()
+//        case "playPause":
+//            togglePlayback()
+//        case "nextStation":
+//            nextStation()
+//        case "previousStation":
+//            previousStation()
+//        default:
+//            break
+//        }
+//    }
+    
     // MARK: - Top Bar
-
+    
     private var headerIcon: some View {
         Group {
             if let image = UIImage(named: "AppLogo") {
@@ -195,16 +290,16 @@ struct MainScreen: View {
             }
         }
     }
-
+    
     private var topBar: some View {
         HStack(spacing: 0) {
             headerIcon
                 .frame(width: 155, height: 78)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .accessibilityLabel("No Hands Radio")
-
+            
             Spacer()
-
+            
             HStack(spacing: 6) {
                 Button {
                     showSettingsOverlay = true
@@ -215,10 +310,10 @@ struct MainScreen: View {
                         .frame(width: 42, height: 44)
                 }
                 .buttonStyle(.plain)
-
+                
                 AirPlayRouteButton()
                     .frame(width: 42, height: 44)
-
+                
                 Button {
                     player.togglePlayback()
                 } label: {
@@ -235,9 +330,9 @@ struct MainScreen: View {
         .padding(.top, 4)
         .padding(.bottom, 2)
     }
-
+    
     // MARK: - Search
-
+    
     private var searchArea: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
@@ -260,7 +355,7 @@ struct MainScreen: View {
                     )
                 }
                 .buttonStyle(.plain)
-
+                
                 Button {
                     showSearchOverlay = true
                 } label: {
@@ -275,7 +370,7 @@ struct MainScreen: View {
                 }
                 .buttonStyle(.plain)
             }
-
+            
             HStack(spacing: 7) {
                 ForEach(dynamicQuickSearches, id: \.self) { search in
                     Button {
@@ -297,7 +392,7 @@ struct MainScreen: View {
             .frame(maxWidth: .infinity)
         }
     }
-
+    
     private var dynamicQuickSearches: [String] {
         let recent = player.savedSearchQueues
             .map(\.name)
@@ -307,7 +402,7 @@ struct MainScreen: View {
                     result.append(name)
                 }
             }
-
+        
         var combined = Array(recent.prefix(4))
         for item in defaultQuickSearches where combined.count < 4 {
             if !combined.contains(where: { $0.caseInsensitiveCompare(item) == .orderedSame }) {
@@ -316,9 +411,9 @@ struct MainScreen: View {
         }
         return combined
     }
-
+    
     // MARK: - Category Card
-
+    
     private var categoryCard: some View {
         HStack(spacing: 10) {
             Button {
@@ -328,7 +423,7 @@ struct MainScreen: View {
                     Text("CATEGORY")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
-
+                    
                     ScrollingText(
                         text: displayedCategoryName,
                         font: .system(size: 19, weight: .bold),
@@ -336,7 +431,7 @@ struct MainScreen: View {
                         speed: 0.8
                     )
                     .frame(height: 24)
-
+                    
                     Text(categoryPositionText)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -344,7 +439,7 @@ struct MainScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
-
+            
             if let activeSearch = activeSavedSearch {
                 Button {
                     stationListSearchName = activeSearch.name
@@ -356,7 +451,7 @@ struct MainScreen: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
-
+                
                 Button(role: .destructive) {
                     pendingDeleteSearchName = activeSearch.name
                 } label: {
@@ -377,15 +472,17 @@ struct MainScreen: View {
                         .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
+                
+                Button(role: .destructive) {
+                    pendingDeleteCategory = activeCategory
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .frame(width: 34, height: 34)
+                }
+                .buttonStyle(.plain)
             }
-
-            Button {
-                toggleCurrentCategoryNavigation()
-            } label: {
-                NavigationArrowIndicator(enabled: currentCategoryNavigationEnabled)
-                    .frame(width: 44, height: 34)
-            }
-            .buttonStyle(.plain)
         }
         .padding(16)
         .frame(maxWidth: .infinity)
@@ -394,57 +491,60 @@ struct MainScreen: View {
                 .fill(Color.white.opacity(0.10))
         )
     }
-
+    
     // MARK: - Now Playing
-
+    
     private var nowPlayingCard: some View {
         VStack(spacing: 5) {
             HStack(alignment: .top, spacing: 12) {
                 stationArtwork
                     .frame(width: 64, height: 64)
-
+                
                 VStack(alignment: .leading, spacing: 2) {
                     ScrollingText(
                         text: player.nowPlayingTitle
-                            ?? (player.isPlaying
-                                ? "Live Radio"
-                                : ((library.categories.isEmpty && player.savedSearchQueues.isEmpty)
-                                    ? "Tap a genre below to get started"
-                                    : "Stopped")),
+                        ?? displayedStation?.name
+                        ?? (player.isPlaying
+                            ? "Live Radio"
+                            : ((library.categories.isEmpty && player.savedSearchQueues.isEmpty)
+                               ? "Tap a genre below to get started"
+                               : "Stopped")),
                         font: .system(size: 19, weight: .bold),
                         color: .white,
                         speed: 0.8
                     )
                     .frame(height: 24)
-
-                    if let artist = player.nowPlayingArtist, !artist.isEmpty {
+                    
+                    // Fall back to category name if artist metadata isn't broadcasting yet
+                    let artistText = (player.nowPlayingArtist?.isEmpty == false) ? player.nowPlayingArtist : displayedCategoryName
+                    if let artist = artistText, !artist.isEmpty {
                         Text(artist)
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
-
+                    
                     HStack(spacing: 8) {
-                        if !player.isPlaying {
+                        if !player.isPlaying, !playbackStatusText.isEmpty {
                             Text(playbackStatusText)
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundStyle(.secondary)
                         }
-
+                        
                         VUMeter(isPlaying: player.isPlaying)
                             .frame(width: 38, height: 11)
                     }
                 }
-
+                
                 Spacer()
             }
-
+            
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("STATION")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
+                    
                     ScrollingText(
                         text: displayedStation?.name ?? "None",
                         font: .system(size: 15, weight: .semibold),
@@ -453,13 +553,13 @@ struct MainScreen: View {
                     .frame(height: 20)
                     .frame(maxWidth: 230)
                 }
-
+                
                 Spacer()
-
+                
                 Text(stationPositionText)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
-
+                
                 Button {
                     prepareStationFileAction()
                 } label: {
@@ -470,7 +570,7 @@ struct MainScreen: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(displayedStation == nil)
-
+                
                 Button {
                     toggleCurrentStationNavigation()
                 } label: {
@@ -488,7 +588,7 @@ struct MainScreen: View {
                 .fill(Color.white.opacity(0.10))
         )
     }
-
+    
     private var stationArtwork: some View {
         Group {
             if let artwork = displayedStation?.artworkURL,
@@ -515,53 +615,66 @@ struct MainScreen: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 15))
     }
-
+    
     private var artworkFallback: some View {
         Image(systemName: "dot.radiowaves.left.and.right")
             .font(.system(size: 29, weight: .medium))
             .foregroundStyle(Color.white.opacity(0.65))
     }
-
+    
     // MARK: - Controls
-
+        
+    // MARK: - Main Screen Controls (Spacious & Prominent)
+        
     private var playbackControls: some View {
-        VStack(spacing: 12) {
-            HStack {
-                controlButton(
-                    systemName: "backward.fill",
-                    title: "",
-                    action: previousCategory
-                )
-
+        VStack(spacing: 16) {
+            // Single-Line Control Row
+            HStack(spacing: 24) {
+                // Previous Category
+                Button(action: { previousCategory() }) {
+                    Image(systemName: "backward.fill")
+                        .font(.system(size: 22, weight: .medium))
+                }
+                
+                // Previous Station
+                Button(action: { previousStation() }) {
+                    Image(systemName: "arrowtriangle.left.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                }
+                
                 Spacer()
-
-                controlButton(
-                    systemName: "arrowtriangle.left.fill",
-                    title: "",
-                    action: previousStation
-                )
-
+                
+                // Prominent Play / Pause Button
+                Button(action: { togglePlayback() }) {
+                    ZStack {
+                        Circle()
+                            .fill(player.isPlaying ? Color.red : Color.green)
+                            .frame(width: 64, height: 64)
+                            .shadow(radius: 4)
+                        
+                        Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                
                 Spacer()
-
-                playButton
-
-                Spacer()
-
-                controlButton(
-                    systemName: "arrowtriangle.right.fill",
-                    title: "",
-                    action: nextStation
-                )
-
-                Spacer()
-
-                controlButton(
-                    systemName: "forward.fill",
-                    title: "",
-                    action: nextCategory
-                )
+                
+                // Next Station
+                Button(action: { nextStation() }) {
+                    Image(systemName: "arrowtriangle.right.fill")
+                        .font(.system(size: 22, weight: .semibold))
+                }
+                
+                // Next Category
+                Button(action: { nextCategory() }) {
+                    Image(systemName: "forward.fill")
+                        .font(.system(size: 22, weight: .medium))
+                }
             }
-
+            .padding(.horizontal)
+            
+            // Status / Error Messages
             if let auditionStatus = player.auditionStatusMessage {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -572,11 +685,11 @@ struct MainScreen: View {
                 }
             } else if let error = player.errorMessage {
                 Text(error)
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 20)
-            } else if player.isConnecting || (player.playbackState == .paused && player.isPlaying == false) {
+                    .padding(.horizontal, 16)
+            } else if player.isConnecting {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
@@ -586,79 +699,49 @@ struct MainScreen: View {
                 }
             }
         }
-        .padding(.horizontal, 2)
+        .padding(.vertical, 12)
+        .tint(.white)
     }
 
-    private var playButton: some View {
-        Button {
-            togglePlayback()
-
-            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-               let rootVC = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                AdInterstitialService.shared.maybeShow(from: rootVC)
-            }
-        } label: {
-            ZStack {
-                Circle()
-                    .fill(player.isPlaying ? Color.red : Color.green)
-                    .frame(width: 62, height: 62)
-
-                Image(
-                    systemName:
-                        player.isPlaying
-                        ? "stop.fill"
-                        : "play.fill"
-                )
-                .font(.system(
-                    size: 25,
-                    weight: .bold
-                ))
-                .foregroundStyle(.white)
-                .offset(
-                    x: player.isPlaying ? 0 : 2
-                )
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func controlButton(
-        systemName: String,
-        title: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: systemName)
-                    .font(.system(
-                        size: 21,
-                        weight: .semibold
-                    ))
-
-                if !title.isEmpty {
-                    Text(title)
-                        .font(.system(size: 9))
-                        .lineLimit(1)
+        private func controlButton(
+            systemName: String,
+            title: String,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button(action: action) {
+                VStack(spacing: 2) {
+                    Image(systemName: systemName)
+                        .font(.system(
+                            size: 15,
+                            weight: .semibold
+                        ))
+                    
+                    if !title.isEmpty {
+                        Text(title)
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                    }
                 }
+                .foregroundStyle(.white)
+                .frame(minWidth: 28, minHeight: 28)
             }
-            .foregroundStyle(.white)
-            .frame(minWidth: 42)
+            .buttonStyle(.plain)
+            .tint(.white)
         }
-        .buttonStyle(.plain)
-    }
-
+    
+  
     // MARK: - Selected Data
-
+    
     private var selectedCategory: Category? {
         guard library.categories.indices.contains(selectedCategoryIndex) else { return nil }
         return library.categories[selectedCategoryIndex]
     }
-
+    
     private var categoryStations: [Station] {
         guard let selectedCategory else { return [] }
         return library.stations(in: selectedCategory)
     }
-
+    
     private var displayedStation: Station? {
         if let currentStation = player.currentStation {
             return currentStation
@@ -666,7 +749,7 @@ struct MainScreen: View {
         guard categoryStations.indices.contains(selectedStationIndex) else { return nil }
         return categoryStations[selectedStationIndex]
     }
-
+    
     private var activeSavedSearch: AudioPlayerService.SavedSearchQueue? {
         guard player.activeLibraryCategoryID == nil,
               let activeName = player.activeQueueName else {
@@ -676,19 +759,19 @@ struct MainScreen: View {
             $0.name.caseInsensitiveCompare(activeName) == .orderedSame
         }
     }
-
+    
     private var actuallyPlayingLibraryCategory: Category? {
         guard let categoryID = player.activeLibraryCategoryID else { return nil }
         return library.categories.first { $0.id == categoryID }
     }
-
+    
     private var activeLibraryCategory: Category? {
         if let category = actuallyPlayingLibraryCategory {
             return category
         }
         return selectedCategory
     }
-
+    
     private var displayedCategoryName: String {
         if let activeSavedSearch {
             return "Search: \(activeSavedSearch.name)"
@@ -701,7 +784,7 @@ struct MainScreen: View {
         }
         return "No category selected"
     }
-
+    
     private var currentCategoryNavigationEnabled: Bool {
         _ = player.navigationRevision
         if let activeSavedSearch {
@@ -712,7 +795,7 @@ struct MainScreen: View {
         }
         return false
     }
-
+    
     private func toggleCurrentCategoryNavigation() {
         if let activeSavedSearch {
             player.toggleSearchNavigation(named: activeSavedSearch.name)
@@ -720,13 +803,13 @@ struct MainScreen: View {
             player.toggleCategoryNavigation(categoryID: activeLibraryCategory.id)
         }
     }
-
+    
     private var categoryPositionText: String {
         let allKeys = library.categories.map { "category:\($0.id.uuidString)" } +
-            player.savedSearchQueues.map { "search:\($0.name.lowercased())" }
-
+        player.savedSearchQueues.map { "search:\($0.name.lowercased())" }
+        
         guard !allKeys.isEmpty else { return "0 of 0" }
-
+        
         let currentKey: String?
         if let activeSavedSearch {
             currentKey = "search:\(activeSavedSearch.name.lowercased())"
@@ -735,11 +818,11 @@ struct MainScreen: View {
         } else {
             currentKey = nil
         }
-
+        
         let index = currentKey.flatMap { allKeys.firstIndex(of: $0) } ?? 0
         return "\(index + 1) of \(allKeys.count)"
     }
-
+    
     private var stationPositionText: String {
         if let queueIndex = player.currentQueueIndex,
            !player.activeQueue.isEmpty {
@@ -750,26 +833,24 @@ struct MainScreen: View {
         }
         return "\(selectedStationIndex + 1) of \(categoryStations.count)"
     }
-
+    
     // MARK: - Playback
-
+    
     private var playbackStatusText: String {
         switch player.playbackState {
-        case .stopped:
-            return "Stopped"
+        case .stopped, .paused:
+            return ""
         case .resolving:
             return "Checking stream…"
         case .connecting:
             return "Connecting…"
         case .playing:
             return "Playing"
-        case .paused:
-            return "Paused"
         case .failed:
             return "Playback unavailable"
         }
     }
-
+    
     private func togglePlayback() {
         if player.isConnecting {
             return
@@ -819,27 +900,27 @@ struct MainScreen: View {
         }
     }
 
-    private func nextStation() {
-        if player.activeQueue.isEmpty {
-            guard !categoryStations.isEmpty else { return }
-            player.play(
-                queue: categoryStations,
-                name: selectedCategory?.name,
-                startAt: selectedStationIndex,
-                autoAdvanceOnFailure: true
-            )
-        } else {
-            player.auditionNextStation()
-        }
-    }
-
- private func scheduleNavigationPrefetch() {
-         Task { @MainActor in
-             // Reduced to 40ms so the next station resolves almost instantly in the background
-             try? await Task.sleep(nanoseconds: 40_000_000)
-             prefetchLikelyNavigationTargets()
+     private func nextStation() {
+         RideLogger.shared.log("UI_TAP: Next station button")
+         if player.activeQueue.isEmpty {
+             guard !categoryStations.isEmpty else { return }
+             player.play(
+                 queue: categoryStations,
+                 name: selectedCategory?.name,
+                 startAt: selectedStationIndex,
+                 autoAdvanceOnFailure: true
+             )
+         } else {
+             player.auditionNextStation()
          }
      }
+
+    private func scheduleNavigationPrefetch() {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            prefetchLikelyNavigationTargets()
+        }
+    }
 
     private func prefetchLikelyNavigationTargets() {
         player.prefetchNextStation()
@@ -850,33 +931,58 @@ struct MainScreen: View {
         case .library(let category):
             let stations = library.stations(in: category)
             guard !stations.isEmpty else { return }
+            let startIndex = player.lastKnownIndex(
+                categoryID: category.id,
+                queueName: category.name,
+                count: stations.count
+            )
             player.prefetch(
                 queue: stations,
                 name: category.name,
-                startAt: 0,
+                startAt: startIndex,
                 step: 1
             )
 
         case .search(let saved):
             guard !saved.stations.isEmpty else { return }
+            let startIndex = player.lastKnownIndex(
+                categoryID: nil,
+                queueName: saved.name,
+                count: saved.stations.count
+            )
             player.prefetch(
                 queue: saved.stations,
                 name: saved.name,
-                startAt: 0,
+                startAt: startIndex,
                 step: 1
             )
         }
     }
 
-    private func previousCategory() {
-        moveCategory(by: -1)
-    }
+    private func previousCategory() { player.executeThrottledAction { moveCategory(by: -1) } }
 
-    private func nextCategory() {
-        moveCategory(by: 1)
-    }
+     private func nextCategory() {
+         RideLogger.shared.log("UI_TAP: Next category triggered")
+         player.executeThrottledAction { moveCategory(by: 1) }
+     }
 
     private func moveCategory(by offset: Int) {
+        // Play feedback sound immediately when user taps category navigation
+        player.playFeedbackSound(type: .categoryChange)
+
+        let now = Date()
+        guard now.timeIntervalSince(AudioPlayerService.lastNavigationTime) >= AudioPlayerService.navigationCooldown else { return }
+        AudioPlayerService.lastNavigationTime = now
+
+        guard !player.isNavigationInputActive else { return }
+        player.isNavigationInputActive = true
+        defer { player.isNavigationInputActive = false }
+
+        // Hard override: immediately kill any active watchdogs, hung network tasks, or ongoing auditions
+        player.cancelStartupWatchdog()
+        player.cancelStallRecovery()
+        player.cancelAudition()
+
         let direction = offset < 0 ? -1 : 1
         let targets = allCategoryTargets().filter { isEligibleCategoryTarget($0) }
         guard !targets.isEmpty else { return }
@@ -886,27 +992,27 @@ struct MainScreen: View {
         player.cancelQueueAudition()
 
         let currentIndex = targets.firstIndex { target in
-            switch target {
-            case .library(let category):
-                return actuallyPlayingLibraryCategory?.id == category.id
-            case .search(let saved):
-                return activeSavedSearch?.name.caseInsensitiveCompare(saved.name) == .orderedSame
-            }
+          switch target {
+          case .library(let category):
+              return actuallyPlayingLibraryCategory?.id == category.id
+          case .search(let saved):
+              return activeSavedSearch?.name.caseInsensitiveCompare(saved.name) == .orderedSame
+          }
         }
 
         let firstIndex: Int
         if let currentIndex {
-            firstIndex = ((currentIndex + direction) % targets.count + targets.count) % targets.count
+          firstIndex = ((currentIndex + direction) % targets.count + targets.count) % targets.count
         } else {
-            firstIndex = direction > 0 ? 0 : targets.count - 1
+          firstIndex = direction > 0 ? 0 : targets.count - 1
         }
 
         auditionCategoryTarget(
-            targets,
-            index: firstIndex,
-            direction: direction,
-            attemptsRemaining: targets.count,
-            generation: generation
+          targets,
+          index: firstIndex,
+          direction: direction,
+          attemptsRemaining: targets.count,
+          generation: generation
         )
     }
 
@@ -945,11 +1051,17 @@ struct MainScreen: View {
                 return
             }
 
+            let startIndex = player.lastKnownIndex(
+                categoryID: category.id,
+                queueName: category.name,
+                count: stations.count
+            )
+
             player.audition(
                 queue: stations,
                 name: category.name,
                 libraryCategoryID: category.id,
-                startAt: direction > 0 ? 0 : stations.count - 1,
+                startAt: startIndex,
                 step: direction,
                 saveAsSearch: false,
                 statusMessage: status,
@@ -961,10 +1073,16 @@ struct MainScreen: View {
                 return
             }
 
+            let startIndex = player.lastKnownIndex(
+                categoryID: nil,
+                queueName: saved.name,
+                count: saved.stations.count
+            )
+
             player.audition(
                 queue: saved.stations,
                 name: saved.name,
-                startAt: direction > 0 ? 0 : saved.stations.count - 1,
+                startAt: startIndex,
                 step: direction,
                 saveAsSearch: false,
                 statusMessage: status,
@@ -1083,18 +1201,29 @@ struct MainScreen: View {
     private func playCategoryTarget(_ target: CategoryTarget) {
         switch target {
         case .library(let category):
+            let stations = library.stations(in: category)
+            let startIndex = player.lastKnownIndex(
+                categoryID: category.id,
+                queueName: category.name,
+                count: stations.count
+            )
             player.play(
-                queue: library.stations(in: category),
+                queue: stations,
                 name: category.name,
                 libraryCategoryID: category.id,
-                startAt: 0,
+                startAt: startIndex,
                 autoAdvanceOnFailure: true
             )
         case .search(let saved):
+            let startIndex = player.lastKnownIndex(
+                categoryID: nil,
+                queueName: saved.name,
+                count: saved.stations.count
+            )
             player.play(
                 queue: saved.stations,
                 name: saved.name,
-                startAt: 0,
+                startAt: startIndex,
                 autoAdvanceOnFailure: true
             )
         }
@@ -1535,6 +1664,25 @@ struct MainScreen: View {
         }
     }
 
+    private func handleWidgetControl(_ url: URL) {
+        guard url.scheme == "nohandsradio", url.host == "widget" else { return }
+
+        switch url.path {
+        case "/previous-category":
+            previousCategory()
+        case "/previous-station":
+            previousStation()
+        case "/toggle-playback":
+            player.togglePlayback()
+        case "/next-station":
+            nextStation()
+        case "/next-category":
+            nextCategory()
+        default:
+            break
+        }
+    }
+
     // MARK: - Station List Overlay
 
     private var stationListOverlay: some View {
@@ -1763,7 +1911,12 @@ private struct VUMeter: View {
     }
 }
 
+
+
 #Preview {
     MainScreen()
         .environmentObject(AudioPlayerService())
 }
+
+
+

@@ -1,0 +1,11 @@
+Fix 1 (The KMOX Rapid-Tap / Request Flooding Issue):
+
+		What happened: Manually hammering or rapid-tapping the Change Categories button flooded the server with requests and bounced the player back to KMOX in an endless loop.
+
+		The fix: Added debounce and throttling logic on the Settings screen / command triggers to prevent rapid-fire request flooding when buttons are repeatedly tapped.
+
+Fix 2 (The Dead Stream / Background Fallback Loop Issue):
+
+		What happened: A stalled stream (like Cool FM: Lagos) caused the app to automatically fall back to subsequent stations. When it hit dead or unreachable URLs throwing HTTP status errors, it got stuck in an endless background retry loop that locked up the player service and ignored button/earbud presses while out riding.
+
+		The fix: Implemented a circuit breaker in PlaybackService.kt that tracks consecutive stream failures and automatically halts playback, clears items, and drops the player into a safe idle state after 3 failed attempts.

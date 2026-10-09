@@ -1,0 +1,1 @@
+iOS Refinement Note: Double-check that category index incrementing and stream failure fallbacks are decoupled in the Swift audio service to prevent the NEXT_CATEGORY looping bug seen in Android.

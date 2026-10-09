@@ -4,6 +4,17 @@
 <dict>
 	<key>CFBundleGetInfoString</key>
 	<string>GADApplicationIdentifier</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.coppersmith.music1chat.widget-controls</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>nohandsradio</string>
+			</array>
+		</dict>
+	</array>
 	<key>GADApplicationIdentifier</key>
 	<string>ca-app-pub-6232643827829257~8341240587</string>
 	<key>NSAppTransportSecurity</key>
@@ -14,12 +25,12 @@
 		<dict>
 			<key>radio-browser.info</key>
 			<dict>
-				<key>NSIncludesSubdomains</key>
-				<true/>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 				<key>NSExceptionMinimumTLSVersion</key>
 				<string>TLSv1.0</string>
+				<key>NSIncludesSubdomains</key>
+				<true/>
 			</dict>
 		</dict>
 	</dict>
@@ -27,5 +38,7 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<key>Use_Test_Ads</key>
+	<string>$(Use_Test_Ads)</string>
 </dict>
 </plist>

@@ -13,71 +13,71 @@ import AppIntents
 
 // MARK: - Next Station
 
-struct NextStationIntent: AppIntent {
-    static let title: LocalizedStringResource = "Next Station"
-    static let description = IntentDescription(
-        "Play the next available radio station in No Hands Radio."
-    )
-
-    static let openAppWhenRun = false
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        Music1ChatIntentBridge.shared.nextStation()
-        return .result()
-    }
-}
-
-// MARK: - Previous Station
-
-struct PreviousStationIntent: AppIntent {
-    static let title: LocalizedStringResource = "Previous Station"
-    static let description = IntentDescription(
-        "Play the previous available radio station in No Hands Radio."
-    )
-
-    static let openAppWhenRun = false
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        Music1ChatIntentBridge.shared.previousStation()
-        return .result()
-    }
-}
+//struct NextStationIntent: AppIntent {
+//    static let title: LocalizedStringResource = "Next Station"
+//    static let description = IntentDescription(
+//        "Play the next available radio station in No Hands Radio."
+//    )
+//
+//    static let openAppWhenRun = false
+//
+//    @MainActor
+//    func perform() async throws -> some IntentResult {
+//        Music1ChatIntentBridge.shared.nextStation()
+//        return .result()
+//    }
+//}
+//
+//// MARK: - Previous Station
+//
+//struct PreviousStationIntent: AppIntent {
+//    static let title: LocalizedStringResource = "Previous Station"
+//    static let description = IntentDescription(
+//        "Play the previous available radio station in No Hands Radio."
+//    )
+//
+//    static let openAppWhenRun = false
+//
+//    @MainActor
+//    func perform() async throws -> some IntentResult {
+//        Music1ChatIntentBridge.shared.previousStation()
+//        return .result()
+//    }
+//}
 
 // MARK: - Next Category
 
-struct NextCategoryIntent: AppIntent {
-    static let title: LocalizedStringResource = "Next Category"
-    static let description = IntentDescription(
-        "Move to the next radio category in No Hands Radio."
-    )
-
-    static let openAppWhenRun = false
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        Music1ChatIntentBridge.shared.nextCategory()
-        return .result()
-    }
-}
-
-// MARK: - Previous Category
-
-struct PreviousCategoryIntent: AppIntent {
-    static let title: LocalizedStringResource = "Previous Category"
-    static let description = IntentDescription(
-        "Move to the previous radio category in No Hands Radio."
-    )
-
-    static let openAppWhenRun = false
-
-    @MainActor
-    func perform() async throws -> some IntentResult {
-        Music1ChatIntentBridge.shared.previousCategory()
-        return .result()
-    }
-}
+//struct NextCategoryIntent: AppIntent {
+//    static let title: LocalizedStringResource = "Next Category"
+//    static let description = IntentDescription(
+//        "Move to the next radio category in No Hands Radio."
+//    )
+//
+//    static let openAppWhenRun = false
+//
+//    @MainActor
+//    func perform() async throws -> some IntentResult {
+//        Music1ChatIntentBridge.shared.nextCategory()
+//        return .result()
+//    }
+//}
+//
+//// MARK: - Previous Category
+//
+//struct PreviousCategoryIntent: AppIntent {
+//    static let title: LocalizedStringResource = "Previous Category"
+//    static let description = IntentDescription(
+//        "Move to the previous radio category in No Hands Radio."
+//    )
+//
+//    static let openAppWhenRun = false
+//
+//    @MainActor
+//    func perform() async throws -> some IntentResult {
+//        Music1ChatIntentBridge.shared.previousCategory()
+//        return .result()
+//    }
+//}
 
 // MARK: - App Intent Bridge
 

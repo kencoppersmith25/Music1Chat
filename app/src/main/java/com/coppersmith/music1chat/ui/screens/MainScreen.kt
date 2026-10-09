@@ -34,6 +34,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,12 +75,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.coppersmith.music1chat.BuildConfig
 import com.coppersmith.music1chat.models.Station
-
+import com.coppersmith.music1chat.persistence.AppPreferences
 
 @Composable
 fun MainScreen() {
 
     val context = LocalContext.current
+//  val appPreferences = remember { AppPreferences(context) }
+
+//    var stationTimeoutSeconds by remember {
+//        mutableLongStateOf(appPreferences.loadStationTimeoutSeconds())
+//    }
+
     val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -234,6 +241,10 @@ fun MainScreen() {
                 }
             }
         }
+    }
+
+    var stationTimeoutSeconds by remember {
+        mutableLongStateOf(appPreferences.loadStationTimeoutSeconds())
     }
 
     var rideLogActive by remember {

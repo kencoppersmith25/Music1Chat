@@ -44,6 +44,8 @@ object RideLogger {
     val hasLog: Boolean
         get() = synchronized(lock) { lineCount > 0 }
 
+    private var defaultUncaughtHandler: Thread.UncaughtExceptionHandler? = null
+
     fun startAutomatically(context: Context): Result<Unit> = runCatching {
         synchronized(lock) {
             if (logFile != null) return@runCatching
@@ -51,10 +53,21 @@ object RideLogger {
             val applicationContext = context.applicationContext
             this.appContext = applicationContext
 
+            // ADDED: Global crash diagnostics handler
+            if (defaultUncaughtHandler == null) {
+                defaultUncaughtHandler = Thread.getDefaultUncaughtExceptionHandler()
+                Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                    val stackTrace = throwable.stackTraceToString()
+                    log("FATAL_CRASH thread='${thread.name}' error='${throwable.message}'\n$stackTrace")
+                    defaultUncaughtHandler?.uncaughtException(thread, throwable)
+                }
+            }
+
             val logDir = File(applicationContext.filesDir, LOG_SUBDIRECTORY)
             if (!logDir.exists()) {
                 logDir.mkdirs()
             }
+            // ... (rest of startAutomatically)
 
             val file = File(logDir, LOG_FILE_NAME)
             this.logFile = file

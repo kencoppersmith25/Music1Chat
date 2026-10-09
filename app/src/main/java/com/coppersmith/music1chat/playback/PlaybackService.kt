@@ -53,6 +53,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var castManager: CastManager
     private lateinit var appPreferences: AppPreferences
 
+    private var consecutiveStreamFailures = 0
     private val currentPlayer: Player
         get() = mediaSession?.player ?: exoPlayer
 
@@ -262,6 +263,10 @@ class PlaybackService : MediaSessionService() {
             }
         }
 
+
+
+
+
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             beginPlaybackAttempt()
             this@PlaybackService.updateRemoteCommandAvailability()
@@ -291,6 +296,7 @@ class PlaybackService : MediaSessionService() {
             RideLogger.log("PLAYER_IS_PLAYING value=$isPlaying station='${currentStationName()}' generation=$playbackGeneration")
             if (isPlaying) {
                 retryCount = 0
+                consecutiveStreamFailures = 0
                 currentItemHasPlayed = true
                 bufferingReconnectAttempted = false
                 cancelRetry()
@@ -334,6 +340,14 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlayerError(error: PlaybackException) {
             RideLogger.log("PLAYER_ERROR code='${error.errorCodeName}' message='${error.message.orEmpty()}' station='${currentStationName()}'")
+            consecutiveStreamFailures++
+            if (consecutiveStreamFailures >= 3) {
+                RideLogger.log("STREAM_CIRCUIT_BREAKER_TRIPPED: Too many consecutive failures.")
+                playbackRequested = false
+                exoPlayer.stop()
+                exoPlayer.clearMediaItems()
+                return
+            }
             if (currentPlayer === castPlayer) {
                 handlingCastSwitch = false
                 returnToLocalPlayer()

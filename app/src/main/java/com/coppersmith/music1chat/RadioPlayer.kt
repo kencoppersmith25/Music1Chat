@@ -519,8 +519,13 @@ class RadioPlayer(
 
     private fun startStartupWatchdog(request: PlaybackRequest, mediaController: MediaController) {
         cancelStartupWatchdog()
+
+        // Read user preference for station startup timeout (default to 8 seconds)
+        val timeoutSeconds = appPreferences.loadStationTimeoutSeconds() // Fallback to 8L if custom key doesn't exist yet
+        val timeoutMillis = (if (timeoutSeconds > 0) timeoutSeconds else 8L) * 1000L
+
         startupWatchdogJob = resolverScope.launch {
-            delay(STARTUP_TIMEOUT_MILLISECONDS)
+            delay(timeoutMillis)
             withContext(Dispatchers.Main) {
                 if (
                     !requestIsStillActive(request) ||
@@ -531,22 +536,19 @@ class RadioPlayer(
                     return@withContext
                 }
 
-                // CHECK FOR RAPID FIRE FAILURES (Likely Network Dead Zone)
+                // Rapid-fire failure check (tightened to 3 attempts for ride safety)
                 val now = System.currentTimeMillis()
-                if (now - lastFailureTime < 20_000) { // Extended window
+                if (now - lastFailureTime < 20_000) {
                     rapidFailureCount++
                 } else {
                     rapidFailureCount = 1
                 }
                 lastFailureTime = now
 
-                if (rapidFailureCount >= 5) { // More attempts allowed
+                if (rapidFailureCount >= 3) {
                     RideLogger.log("NETWORK_SAFETY_TRIGGERED count=$rapidFailureCount")
-                    
-                    // STOP and wait for the user or the network.
                     errorMessage = "Network signal too weak. Pausing auto-advance."
                     playbackRequested = false
-                    
                     rapidFailureCount = 0
                     return@withContext
                 }
@@ -554,12 +556,10 @@ class RadioPlayer(
                 val failedStation = request.station
                 RideLogger.log(
                     "STATION_START_FAILED " +
-                            "delayMs=$STARTUP_TIMEOUT_MILLISECONDS " +
+                            "delayMs=$timeoutMillis " +
                             "station='${failedStation.name}' " +
                             "mediaId='${request.mediaId}' " +
-                            "generation=${request.generation} " +
-                            "controllerMediaId='${mediaController.currentMediaItem?.mediaId.orEmpty()}' " +
-                            "state=${mediaController.playbackState}"
+                            "generation=${request.generation}"
                 )
 
                 mediaController.stop()
