@@ -14,12 +14,12 @@
 		<dict>
 			<key>radio-browser.info</key>
 			<dict>
-				<key>NSIncludesSubdomains</key>
-				<true/>
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 				<key>NSExceptionMinimumTLSVersion</key>
 				<string>TLSv1.0</string>
+				<key>NSIncludesSubdomains</key>
+				<true/>
 			</dict>
 		</dict>
 	</dict>

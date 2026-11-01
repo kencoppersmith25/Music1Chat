@@ -523,13 +523,13 @@ final class AudioPlayerService: ObservableObject {
     }
 
     func next() {
-        throttleCommand {
+        AudioPlayerService.throttleCommand {
             auditionNextStation()
         }
     }
 
     func previous() {
-        throttleCommand {
+        AudioPlayerService.throttleCommand {
             auditionPreviousStation()
         }
     }
